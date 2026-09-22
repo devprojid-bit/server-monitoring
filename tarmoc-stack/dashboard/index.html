@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TARMOC — Infrastructure Monitoring</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#0F1318; --panel:#161B22; --panel-raised:#1D2430; --border:#262D38; --border-soft:#1D242E;
+  --text:#E8ECF2; --text-muted:#8A93A3; --text-faint:#5A6272;
+  --brand:#7C93FF; --brand-dim:#3B4478;
+  --ok:#3FBF7F; --ok-bg:rgba(63,191,127,.12);
+  --warn:#E0A83E; --warn-bg:rgba(224,168,62,.14);
+  --crit:#E5484D; --crit-bg:rgba(229,72,77,.14);
+  --emg:#C24CDB; --emg-bg:rgba(194,76,219,.14);
+  --off:#5A6272; --off-bg:rgba(90,98,114,.14);
+  --shadow: 0 8px 24px rgba(0,0,0,.35);
+  --radius: 10px;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+:root:not([data-theme="light"]){ color-scheme: dark; }
+:root[data-theme="light"]{
+  --bg:#F3F4F7; --panel:#FFFFFF; --panel-raised:#FFFFFF; --border:#E2E5EB; --border-soft:#EBEDF1;
+  --text:#171B22; --text-muted:#5B6472; --text-faint:#96A0AE;
+  --brand:#4A5FDB; --brand-dim:#E4E7FB;
+  --ok:#1F9D5C; --ok-bg:rgba(31,157,92,.10);
+  --warn:#B4791E; --warn-bg:rgba(180,121,30,.12);
+  --crit:#D0353C; --crit-bg:rgba(208,53,60,.10);
+  --emg:#9B2EB0; --emg-bg:rgba(155,46,176,.10);
+  --off:#8991A0; --off-bg:rgba(137,145,160,.12);
+  --shadow: 0 8px 24px rgba(20,25,40,.08);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]):not([data-theme="light"]){
+    --bg:#F3F4F7; --panel:#FFFFFF; --panel-raised:#FFFFFF; --border:#E2E5EB; --border-soft:#EBEDF1;
+    --text:#171B22; --text-muted:#5B6472; --text-faint:#96A0AE;
+    --brand:#4A5FDB; --brand-dim:#E4E7FB;
+    --ok:#1F9D5C; --ok-bg:rgba(31,157,92,.10);
+    --warn:#B4791E; --warn-bg:rgba(180,121,30,.12);
+    --crit:#D0353C; --crit-bg:rgba(208,53,60,.10);
+    --emg:#9B2EB0; --emg-bg:rgba(155,46,176,.10);
+    --off:#8991A0; --off-bg:rgba(137,145,160,.12);
+    color-scheme: light;
+  }
+}
+*{box-sizing:border-box;}
+html,body{height:100%;margin:0;}
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+body{
+  background:var(--bg); color:var(--text); font-family:var(--sans);
+  font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  overflow-x:hidden;
+}
+::selection{background:var(--brand-dim);color:var(--text);}
+a{color:inherit;}
+button{font-family:inherit;}
+::-webkit-scrollbar{width:10px;height:10px;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px;}
+::-webkit-scrollbar-track{background:transparent;}
+
+.app{display:flex;min-height:100vh;}
+
+/* ---------- Sidebar ---------- */
+.sidebar{
+  width:240px;flex:none;background:var(--panel);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  padding:20px 14px calc(16px + env(safe-area-inset-bottom,0px));
+}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 22px;}
+.brand-mark{
+  width:30px;height:30px;border-radius:8px;background:linear-gradient(155deg,var(--brand),#4854A8);
+  display:flex;align-items:center;justify-content:center;color:#fff;font-family:var(--mono);
+  font-weight:600;font-size:13px;flex:none;
+}
+.brand-name{font-weight:800;font-size:15px;letter-spacing:.2px;}
+.brand-sub{font-size:11px;color:var(--text-faint);font-family:var(--mono);margin-top:1px;}
+
+.nav-group{margin-bottom:4px;}
+.nav-label{font-size:11px;color:var(--text-faint);padding:14px 10px 6px;font-weight:600;letter-spacing:.02em;}
+.nav-item{
+  display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--text-muted);
+  font-size:13.5px;font-weight:500;cursor:pointer;user-select:none;position:relative;
+  transition:background .12s,color .12s;
+}
+.nav-item:hover{background:var(--panel-raised);color:var(--text);}
+.nav-item.active{background:var(--brand-dim);color:var(--brand);}
+.nav-item .ic{width:16px;height:16px;flex:none;display:flex;align-items:center;justify-content:center;}
+.nav-item svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.nav-item .count{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--text-faint);}
+.nav-item.active .count{color:var(--brand);}
+.sidebar-foot{margin-top:auto;padding-top:14px;border-top:1px solid var(--border-soft);}
+.agent-pill{
+  display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;background:var(--panel-raised);
+  font-size:11.5px;color:var(--text-muted);
+}
+.dot{width:7px;height:7px;border-radius:50%;flex:none;}
+.dot.ok{background:var(--ok);box-shadow:0 0 0 3px var(--ok-bg);}
+
+/* ---------- Main ---------- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;}
+.topbar{
+  position:sticky;top:0;z-index:20;padding-top:env(safe-area-inset-top,0px);
+  background:color-mix(in srgb, var(--bg) 88%, transparent);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--border);
+}
+.topbar-inner{display:flex;align-items:center;gap:14px;padding:14px 26px;}
+.crumb{font-size:12px;color:var(--text-faint);font-family:var(--mono);}
+.view-title{font-size:19px;font-weight:800;margin-right:auto;display:flex;align-items:center;gap:10px;}
+.search-trigger{
+  display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;
+  background:var(--panel);color:var(--text-faint);font-size:12.5px;cursor:pointer;min-width:220px;
+}
+.search-trigger kbd{
+  margin-left:auto;font-family:var(--mono);font-size:10px;background:var(--panel-raised);border:1px solid var(--border);
+  border-radius:4px;padding:1px 5px;color:var(--text-muted);
+}
+.icon-btn{
+  width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:var(--panel);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-muted);flex:none;
+}
+.icon-btn:hover{color:var(--text);border-color:var(--text-faint);}
+.icon-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.btn{
+  display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:8px;border:1px solid transparent;
+  font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;
+}
+.btn-brand{background:var(--brand);color:#0F1318;}
+.btn-brand:hover{filter:brightness(1.06);}
+.btn-ghost{background:var(--panel);border-color:var(--border);color:var(--text);}
+.btn-ghost:hover{border-color:var(--text-faint);}
+
+.content{padding:22px 26px 60px;max-width:1400px;width:100%;margin:0 auto;}
+.view{display:none;}
+.view.active{display:block;}
+
+/* ---------- Stat strip ---------- */
+.stat-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;}
+.stat-card{
+  background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;
+}
+.stat-num{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1;}
+.stat-label{margin-top:7px;font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.stat-card.ok .stat-num{color:var(--ok);}
+.stat-card.warn .stat-num{color:var(--warn);}
+.stat-card.crit .stat-num{color:var(--crit);}
+.stat-card.off .stat-num{color:var(--off);}
+
+.resource-strip{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;
+}
+.res-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:15px 17px;}
+.res-top{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:9px;}
+.res-name{font-size:12px;color:var(--text-muted);font-weight:600;}
+.res-val{font-family:var(--mono);font-size:15px;font-weight:600;}
+.bar{height:6px;border-radius:4px;background:var(--panel-raised);overflow:hidden;}
+.bar-fill{height:100%;border-radius:4px;}
+
+/* ---------- Panels / grid ---------- */
+.two-col{display:grid;grid-template-columns:1.55fr 1fr;gap:16px;align-items:start;margin-bottom:16px;}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+.panel-head{
+  display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border-soft);
+}
+.panel-title{font-size:13.5px;font-weight:700;}
+.panel-sub{font-size:11.5px;color:var(--text-faint);margin-left:auto;}
+.panel-body{padding:6px 0;}
+.panel-body.pad{padding:16px 18px;}
+
+table{width:100%;border-collapse:collapse;font-size:12.8px;}
+th{
+  text-align:left;font-size:10.5px;text-transform:none;color:var(--text-faint);font-weight:600;
+  padding:9px 18px;border-bottom:1px solid var(--border-soft);white-space:nowrap;
+}
+td{padding:10px 18px;border-bottom:1px solid var(--border-soft);vertical-align:middle;white-space:nowrap;}
+tbody tr{cursor:pointer;transition:background .1s;}
+tbody tr:hover{background:var(--panel-raised);}
+tbody tr:last-child td{border-bottom:none;}
+.mono{font-family:var(--mono);}
+.cell-name{font-weight:600;}
+.cell-sub{color:var(--text-faint);font-size:11px;font-family:var(--mono);}
+
+.badge{
+  display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;
+}
+.badge.ok{background:var(--ok-bg);color:var(--ok);}
+.badge.warn{background:var(--warn-bg);color:var(--warn);}
+.badge.crit{background:var(--crit-bg);color:var(--crit);}
+.badge.emg{background:var(--emg-bg);color:var(--emg);}
+.badge.off{background:var(--off-bg);color:var(--off);}
+.badge .dot{width:6px;height:6px;}
+
+.mini-metric{display:flex;align-items:center;gap:7px;}
+.mini-bar{width:46px;height:5px;border-radius:3px;background:var(--panel-raised);overflow:hidden;flex:none;}
+.mini-bar>span{display:block;height:100%;border-radius:3px;}
+.mini-val{font-family:var(--mono);font-size:11.5px;width:30px;flex:none;}
+
+/* Alerts list */
+.alert-row{display:flex;gap:11px;padding:12px 18px;border-bottom:1px solid var(--border-soft);cursor:default;}
+.alert-row:last-child{border-bottom:none;}
+.alert-sev{width:8px;height:8px;border-radius:50%;margin-top:5px;flex:none;}
+.alert-main{flex:1;min-width:0;}
+.alert-msg{font-size:12.8px;font-weight:600;}
+.alert-meta{font-size:11px;color:var(--text-faint);margin-top:2px;font-family:var(--mono);}
+.empty{padding:34px 18px;text-align:center;color:var(--text-faint);font-size:12.5px;}
+
+/* Heatmap */
+.heatmap{padding:16px 18px;}
+.heatmap-row{display:grid;grid-template-columns:120px repeat(3,1fr);gap:8px;align-items:center;padding:5px 0;}
+.heatmap-row.head{color:var(--text-faint);font-size:10.5px;font-weight:600;}
+.hm-name{font-size:12.3px;font-weight:600;font-family:var(--mono);}
+.hm-cell{height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;font-weight:600;}
+
+/* filters */
+.filter-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;}
+.chip{
+  padding:6px 13px;border-radius:20px;border:1px solid var(--border);background:var(--panel);
+  font-size:12px;color:var(--text-muted);cursor:pointer;font-weight:600;
+}
+.chip.active{background:var(--brand);border-color:var(--brand);color:#0F1318;}
+.search-input{
+  margin-left:auto;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);
+  color:var(--text);font-size:12.5px;min-width:220px;
+}
+.search-input:focus{outline:none;border-color:var(--brand);}
+
+/* Server detail */
+.back-link{
+  display:inline-flex;align-items:center;gap:6px;color:var(--text-muted);font-size:12.5px;cursor:pointer;
+  margin-bottom:14px;font-weight:600;
+}
+.back-link svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;}
+.detail-head{display:flex;align-items:flex-start;gap:18px;margin-bottom:20px;flex-wrap:wrap;}
+.detail-title{font-size:22px;font-weight:800;display:flex;align-items:center;gap:10px;}
+.detail-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;font-size:12px;color:var(--text-muted);margin-top:10px;}
+.detail-grid b{color:var(--text);font-weight:600;display:block;font-family:var(--mono);margin-top:2px;}
+.health-score{
+  margin-left:auto;text-align:center;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+  padding:14px 22px;flex:none;
+}
+.health-score .num{font-family:var(--mono);font-size:26px;font-weight:700;}
+.health-score .lbl{font-size:11px;color:var(--text-muted);margin-top:2px;}
+
+.card-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;}
+.rcard{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;}
+.rcard .head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;}
+.rcard .name{font-size:12px;color:var(--text-muted);font-weight:700;}
+.rcard .pct{font-family:var(--mono);font-size:22px;font-weight:700;}
+.rcard .sub{font-size:11px;color:var(--text-faint);margin-top:8px;font-family:var(--mono);}
+
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:16px;}
+.tab{padding:9px 14px;font-size:12.5px;font-weight:600;color:var(--text-faint);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;}
+.tab.active{color:var(--brand);border-color:var(--brand);}
+.range-row{display:flex;gap:6px;margin-bottom:12px;}
+.range-chip{padding:5px 11px;border-radius:6px;font-size:11.5px;font-weight:600;color:var(--text-muted);border:1px solid var(--border);cursor:pointer;}
+.range-chip.active{background:var(--brand-dim);color:var(--brand);border-color:transparent;}
+.chart-wrap{height:220px;padding:10px 14px 4px;}
+.cores-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;padding:0 18px 16px;}
+.core{background:var(--panel-raised);border-radius:6px;padding:6px 4px;text-align:center;}
+.core .n{font-size:9.5px;color:var(--text-faint);}
+.core .v{font-family:var(--mono);font-size:12px;font-weight:600;margin-top:2px;}
+
+.forecast-note{
+  display:flex;gap:9px;align-items:flex-start;padding:12px 16px;margin:0 18px 16px;border-radius:8px;
+  background:var(--warn-bg);color:var(--warn);font-size:12px;
+}
+.forecast-note svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;flex:none;margin-top:1px;}
+
+.svc-list{padding:4px 18px 14px;}
+.svc-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border-soft);}
+.svc-row:last-child{border-bottom:none;}
+.svc-name{font-weight:600;font-size:12.8px;flex:1;}
+
+/* Command palette */
+.cmdk-overlay{
+  position:fixed;inset:0;background:rgba(6,8,12,.55);backdrop-filter:blur(2px);z-index:100;
+  display:none;align-items:flex-start;justify-content:center;padding-top:12vh;
+}
+.cmdk-overlay.open{display:flex;}
+.cmdk-box{
+  width:min(560px,92vw);background:var(--panel);border:1px solid var(--border);border-radius:12px;
+  box-shadow:var(--shadow);overflow:hidden;
+}
+.cmdk-input{
+  width:100%;border:none;background:transparent;padding:16px 18px;font-size:15px;color:var(--text);
+  border-bottom:1px solid var(--border-soft);font-family:var(--sans);
+}
+.cmdk-input:focus{outline:none;}
+.cmdk-list{max-height:340px;overflow-y:auto;padding:6px;}
+.cmdk-item{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:8px;font-size:13px;cursor:pointer;}
+.cmdk-item.sel{background:var(--brand-dim);color:var(--brand);}
+.cmdk-item .tag{margin-left:auto;font-size:10.5px;color:var(--text-faint);font-family:var(--mono);}
+.cmdk-item.sel .tag{color:var(--brand);}
+
+/* Add-server modal */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(6,8,12,.55);backdrop-filter:blur(2px);z-index:110;
+  display:none;align-items:center;justify-content:center;padding:20px;
+}
+.modal-overlay.open{display:flex;}
+.modal-box{
+  width:min(520px,94vw);max-height:88vh;overflow-y:auto;background:var(--panel);border:1px solid var(--border);
+  border-radius:12px;box-shadow:var(--shadow);
+}
+.modal-head{display:flex;align-items:center;gap:10px;padding:18px 20px;border-bottom:1px solid var(--border-soft);}
+.modal-head h3{margin:0;font-size:15.5px;font-weight:700;}
+.modal-head p{margin:2px 0 0;font-size:12px;color:var(--text-faint);}
+.modal-close{margin-left:auto;width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:var(--panel-raised);color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;}
+.modal-close svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;}
+.modal-body{padding:18px 20px;}
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;}
+.field input, .field select{
+  width:100%;padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel-raised);
+  color:var(--text);font-size:13px;font-family:var(--sans);
+}
+.field input:focus, .field select:focus{outline:none;border-color:var(--brand);}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.field-hint{font-size:11px;color:var(--text-faint);margin-top:5px;}
+.modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:16px 20px;border-top:1px solid var(--border-soft);}
+.token-box{
+  background:var(--panel-raised);border:1px solid var(--border);border-radius:8px;padding:12px 14px;
+  font-family:var(--mono);font-size:12px;word-break:break-all;color:var(--brand);display:flex;gap:10px;align-items:center;
+}
+.token-copy{flex:none;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--panel);color:var(--text-muted);font-size:11px;font-weight:600;cursor:pointer;}
+.success-icon{width:38px;height:38px;border-radius:50%;background:var(--ok-bg);color:var(--ok);display:flex;align-items:center;justify-content:center;flex:none;}
+.success-icon svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:2.2;}
+
+/* placeholder */
+.placeholder{padding:70px 20px;text-align:center;color:var(--text-faint);}
+.placeholder h3{color:var(--text);font-size:16px;margin-bottom:6px;}
+.placeholder p{font-size:13px;max-width:420px;margin:0 auto;}
+
+@media (max-width:1050px){
+  .stat-row{grid-template-columns:repeat(3,1fr);}
+  .resource-strip{grid-template-columns:repeat(2,1fr);}
+  .two-col{grid-template-columns:1fr;}
+  .card-row{grid-template-columns:repeat(2,1fr);}
+  .detail-grid{grid-template-columns:repeat(3,1fr);}
+}
+@media (max-width:760px){
+  .sidebar{position:fixed;left:0;top:0;bottom:0;transform:translateX(-100%);transition:transform .18s;z-index:60;box-shadow:var(--shadow);}
+  .sidebar.open{transform:translateX(0);}
+  .stat-row{grid-template-columns:repeat(2,1fr);}
+  .cores-grid{grid-template-columns:repeat(4,1fr);}
+  .search-trigger{min-width:0;flex:1;}
+  .view-title{font-size:16px;}
+  table{font-size:12px;}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">TM</div>
+      <div>
+        <div class="brand-name">TARMOC</div>
+        <div class="brand-sub">Central Ops Platform</div>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-item" data-view="__home">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg></span>
+        Dashboard
+      </div>
+      <div class="nav-item" data-view="__apps">
+        <span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span>
+        Applications
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-label">Infrastructure</div>
+      <div class="nav-item active" data-view="overview">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M9 15l3-4 3 3 4-6"/></svg></span>
+        Overview
+      </div>
+      <div class="nav-item" data-view="servers">
+        <span class="ic"><svg viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="6" rx="1.4"/><rect x="3.5" y="14" width="17" height="6" rx="1.4"/><circle cx="7" cy="7" r=".8" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r=".8" fill="currentColor" stroke="none"/></svg></span>
+        Servers <span class="count" id="nav-servers-count"></span>
+      </div>
+      <div class="nav-item" data-view="alerts">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17h.01"/></svg></span>
+        Alerts <span class="count" id="nav-alerts-count"></span>
+      </div>
+      <div class="nav-item" data-view="__metrics">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 4 9-10"/></svg></span>
+        Metrics
+      </div>
+      <div class="nav-item" data-view="docker">
+        <span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="9" width="4" height="4"/><rect x="8" y="9" width="4" height="4"/><rect x="13" y="9" width="4" height="4"/><rect x="8" y="4" width="4" height="4"/><path d="M2 13c0 4 3 7 9 7 5.5 0 9-3 10.5-7"/></svg></span>
+        Services &amp; Docker
+      </div>
+      <div class="nav-item" data-view="agents">
+        <span class="ic"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 7h6M9 11h6M9 15h3"/></svg></span>
+        Agents
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-label">Workspace</div>
+      <div class="nav-item" data-view="reports">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg></span>
+        Reports
+      </div>
+      <div class="nav-item" data-view="logs">
+        <span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+        Activity Logs
+      </div>
+      <div class="nav-item" data-view="settings">
+        <span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.4 1z"/></svg></span>
+        Settings
+      </div>
+    </div>
+
+    <div class="sidebar-foot">
+      <div class="agent-pill" id="apiPill" style="cursor:pointer" title="Click to change the API URL">API: connecting…</div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-inner">
+        <button class="icon-btn" id="menuBtn" style="display:none" title="Menu">
+          <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <div class="view-title" id="viewTitle">Infrastructure Monitoring</div>
+        <div class="search-trigger" id="cmdkOpen">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          Search servers, alerts, actions…
+          <kbd>⌘K</kbd>
+        </div>
+        <button class="icon-btn" id="themeToggle" title="Toggle theme">
+          <svg viewBox="0 0 24 24" id="themeIcon"><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/><circle cx="12" cy="12" r="4.5"/></svg>
+        </button>
+        <button class="btn btn-brand" id="addServerBtn">+ Add server</button>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- OVERVIEW -->
+      <section class="view active" id="view-overview">
+        <div class="stat-row" id="statRow"></div>
+        <div class="resource-strip" id="resStrip"></div>
+        <div class="two-col">
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title">Server health</div>
+              <div class="panel-sub" id="serverHealthSub"></div>
+            </div>
+            <div class="panel-body">
+              <table>
+                <thead><tr><th>Server</th><th>CPU</th><th>RAM</th><th>Disk</th><th>Status</th></tr></thead>
+                <tbody id="healthTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-title">Active alerts</div>
+              <div class="panel-sub" id="activeAlertsSub"></div>
+            </div>
+            <div class="panel-body" id="activeAlertsList"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">Resource heatmap</div>
+            <div class="panel-sub">CPU · RAM · Disk, current reading</div>
+          </div>
+          <div class="heatmap">
+            <div class="heatmap-row head"><div></div><div>CPU</div><div>RAM</div><div>Disk</div></div>
+            <div id="heatmapBody"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SERVERS -->
+      <section class="view" id="view-servers">
+        <div class="filter-row" id="serverFilters"></div>
+        <div class="panel">
+          <div class="panel-body">
+            <table>
+              <thead><tr>
+                <th>Server</th><th>Status</th><th>IP</th><th>OS</th><th>CPU</th><th>RAM</th><th>Disk</th><th>Network</th><th>Uptime</th><th>Last seen</th>
+              </tr></thead>
+              <tbody id="serversTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- SERVER DETAIL -->
+      <section class="view" id="view-detail">
+        <div class="back-link" id="backToServers"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Back to servers</div>
+        <div class="detail-head">
+          <div style="flex:1;min-width:240px;">
+            <div class="detail-title"><span id="dTitle"></span> <span id="dBadge"></span></div>
+            <div class="detail-grid" id="dInfoGrid"></div>
+          </div>
+          <div class="health-score">
+            <div class="num" id="dHealthNum">—</div>
+            <div class="lbl">Health score</div>
+          </div>
+        </div>
+
+        <div class="card-row" id="dCards"></div>
+
+        <div class="panel" style="margin-bottom:16px;">
+          <div class="panel-head" style="border-bottom:none;padding-bottom:0;">
+            <div class="tabs" id="dTabs">
+              <div class="tab active" data-tab="cpu">CPU</div>
+              <div class="tab" data-tab="ram">RAM</div>
+              <div class="tab" data-tab="disk">Storage</div>
+              <div class="tab" data-tab="net">Network</div>
+              <div class="tab" data-tab="temp">Temperature</div>
+            </div>
+          </div>
+          <div class="range-row" style="padding:0 18px;" id="dRanges"></div>
+          <div class="chart-wrap"><canvas id="dChart"></canvas></div>
+          <div id="dCoresWrap"></div>
+          <div id="dForecastWrap"></div>
+        </div>
+
+        <div class="two-col">
+          <div class="panel">
+            <div class="panel-head"><div class="panel-title">Top processes</div></div>
+            <div class="panel-body">
+              <table>
+                <thead><tr><th>Process</th><th>PID</th><th>CPU</th><th>RAM</th></tr></thead>
+                <tbody id="dProcBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div class="panel-title">Services</div></div>
+            <div class="svc-list" id="dSvcList"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ALERTS -->
+      <section class="view" id="view-alerts">
+        <div class="filter-row" id="alertFilters"></div>
+        <div class="panel">
+          <div class="panel-body">
+            <table>
+              <thead><tr><th>Time</th><th>Server</th><th>Metric</th><th>Severity</th><th>Value</th><th>Threshold</th><th>Status</th></tr></thead>
+              <tbody id="alertsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- DOCKER & SERVICES -->
+      <section class="view" id="view-docker">
+        <div class="panel"><div class="placeholder">
+          <h3>Services &amp; Docker</h3>
+          <p>Not collected by the agent yet in this MVP — the agent currently reports CPU, RAM, disk, network, load average, uptime and temperature. Container and service-level monitoring is a straightforward extension of the same agent (see the API README's "What's not in this MVP yet").</p>
+        </div></div>
+      </section>
+
+      <!-- AGENTS -->
+      <section class="view" id="view-agents">
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">Agent management</div><div class="panel-sub">Install token is scoped per server and never stored in the frontend</div></div>
+          <div class="panel-body">
+            <table>
+              <thead><tr><th>Server</th><th>Agent version</th><th>Status</th><th>OS</th><th>Last heartbeat</th><th>IP</th><th>Installed</th></tr></thead>
+              <tbody id="agentsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- PLACEHOLDERS -->
+      <section class="view" id="view-reports">
+        <div class="panel"><div class="placeholder">
+          <h3>Reports</h3>
+          <p>Daily health, weekly resource usage, and monthly availability reports export to PDF, CSV, or Excel. Configure a schedule to have them delivered automatically.</p>
+        </div></div>
+      </section>
+      <section class="view" id="view-logs">
+        <div class="panel"><div class="placeholder">
+          <h3>Activity logs</h3>
+          <p>Every restart, threshold change, and server action is recorded here with the user, IP, and result — required for every dangerous action.</p>
+        </div></div>
+      </section>
+      <section class="view" id="view-settings">
+        <div class="panel"><div class="placeholder">
+          <h3>Settings</h3>
+          <p>Thresholds, notification channels, roles and permissions, and retention policy live here. Nothing in this preview is wired to real settings yet.</p>
+        </div></div>
+      </section>
+      <section class="view" id="view-__home">
+        <div class="panel"><div class="placeholder">
+          <h3>Central dashboard</h3>
+          <p>TARMOC brings KasStore, Inventory, Finance, HR, and Infrastructure Monitoring together under one login, one role model, and one audit trail.</p>
+        </div></div>
+      </section>
+      <section class="view" id="view-__apps">
+        <div class="panel"><div class="placeholder">
+          <h3>Applications</h3>
+          <p>Switch between the other TARMOC modules from here. This preview focuses on Infrastructure Monitoring.</p>
+        </div></div>
+      </section>
+      <section class="view" id="view-__metrics">
+        <div class="panel"><div class="placeholder">
+          <h3>Metrics explorer</h3>
+          <p>A free-form view for plotting any metric across any server or group — open a server's Overview tab to see the same charts scoped to one host.</p>
+        </div></div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<div class="cmdk-overlay" id="cmdkOverlay">
+  <div class="cmdk-box">
+    <input class="cmdk-input" id="cmdkInput" placeholder="Go to server, view alerts, add server…" autocomplete="off">
+    <div class="cmdk-list" id="cmdkList"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="addServerOverlay">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>
+        <h3 id="addServerTitle">Add server</h3>
+        <p id="addServerSub">Register a new server or PC to start monitoring it</p>
+      </div>
+      <div class="modal-close" id="addServerClose"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></div>
+    </div>
+
+    <div class="modal-body" id="addServerFormWrap">
+      <div class="field">
+        <label for="fName">Server name</label>
+        <input id="fName" placeholder="e.g. app-04">
+      </div>
+      <div class="field">
+        <label for="fHost">Hostname</label>
+        <input id="fHost" placeholder="e.g. app-04.internal">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="fIp">IP address</label>
+          <input id="fIp" placeholder="10.20.1.14">
+        </div>
+        <div class="field">
+          <label for="fOs">Operating system</label>
+          <select id="fOs">
+            <option>Ubuntu 22.04</option>
+            <option>Debian 12</option>
+            <option>Windows Server 2022</option>
+            <option>Other Linux</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="fEnv">Environment</label>
+          <select id="fEnv">
+            <option value="production">production</option>
+            <option value="staging">staging</option>
+            <option value="development">development</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="fType">Type</label>
+          <select id="fType">
+            <option>Physical server</option>
+            <option>Virtual machine</option>
+            <option>Docker host</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="fTags">Tags</label>
+        <input id="fTags" placeholder="role:web, location:jakarta">
+        <div class="field-hint">Comma-separated. Used for filtering and grouping servers.</div>
+      </div>
+      <div class="field">
+        <label for="fAdminKey">Admin key</label>
+        <input id="fAdminKey" type="password" placeholder="ADMIN_API_KEY from the API's .env">
+        <div class="field-hint">Remembered on this device after the first successful registration.</div>
+      </div>
+      <div id="addServerError" style="display:none;color:var(--crit);font-size:12px;background:var(--crit-bg);border-radius:8px;padding:9px 12px;"></div>
+    </div>
+
+    <div class="modal-body" id="addServerSuccessWrap" style="display:none;">
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;">
+        <div class="success-icon"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div>
+        <div>
+          <div style="font-weight:700;font-size:14px;" id="successName"></div>
+          <div style="font-size:12px;color:var(--text-faint);">Server registered. Install the agent using the token below.</div>
+        </div>
+      </div>
+      <div class="field-hint" style="margin-bottom:6px;">Agent token — shown once, never hard-coded in the frontend</div>
+      <div class="token-box"><span id="genToken"></span><button class="token-copy" id="copyToken">Copy</button></div>
+      <div class="field-hint" style="margin-top:14px;">Run this on the target server to connect its agent:</div>
+      <div class="token-box" style="color:var(--text);"><span id="installCmd"></span></div>
+    </div>
+
+    <div class="modal-foot" id="addServerFootForm">
+      <button class="btn btn-ghost" id="addServerCancel">Cancel</button>
+      <button class="btn btn-brand" id="addServerSubmit">Register server</button>
+    </div>
+    <div class="modal-foot" id="addServerFootDone" style="display:none;">
+      <button class="btn btn-brand" id="addServerDoneBtn">Done</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------- API connection ---------------- */
+const API_BASE = localStorage.getItem('tarmoc_api_base') || (location.protocol + '//' + location.hostname + ':4000');
+
+async function apiFetch(pathname, opts = {}) {
+  const res = await fetch(API_BASE + pathname, {
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) { const err = new Error(data?.error || res.statusText); err.status = res.status; err.data = data; throw err; }
+  return data;
+}
+
+function setApiBanner(msg) {
+  let el = document.getElementById('apiBanner');
+  if (!msg) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'apiBanner';
+    el.style.cssText = 'background:var(--crit-bg);color:var(--crit);border:1px solid var(--crit);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:12.5px;';
+    document.querySelector('.content').prepend(el);
+  }
+  el.textContent = msg;
+}
+
+/* ---------------- Field mapping helpers ---------------- */
+const SEV = {
+  info:{c:'var(--brand)', bg:'var(--brand-dim)', label:'Info'},
+  warning:{c:'var(--warn)', bg:'var(--warn-bg)', label:'Warning'},
+  critical:{c:'var(--crit)', bg:'var(--crit-bg)', label:'Critical'},
+  emergency:{c:'var(--emg)', bg:'var(--emg-bg)', label:'Emergency'}
+};
+const STATUS_CLASS = {healthy:'ok', warning:'warn', critical:'crit', offline:'off'};
+const METRIC_LABEL = {cpu_usage:'CPU usage', ram_usage:'RAM usage', disk_usage:'Disk usage', temperature:'Temperature'};
+const METRIC_UNIT = {cpu_usage:'%', ram_usage:'%', disk_usage:'%', temperature:'°C'};
+
+function round2(n){ return Math.round(n*100)/100; }
+function statusColorVar(s){ return {healthy:'var(--ok)', warning:'var(--warn)', critical:'var(--crit)', offline:'var(--off)'}[s] || 'var(--off)'; }
+function pctColor(v){ return v>=90?'var(--crit)': v>=75?'var(--warn)':'var(--ok)'; }
+function badge(status){
+  const cls = STATUS_CLASS[status]||'off';
+  const label = status.charAt(0).toUpperCase()+status.slice(1);
+  return `<span class="badge ${cls}"><span class="dot" style="background:${statusColorVar(status)}"></span>${label}</span>`;
+}
+function miniMetric(v){
+  if (v===null || v===undefined) return `<span class="cell-sub">—</span>`;
+  return `<div class="mini-metric"><div class="mini-bar"><span style="width:${v}%;background:${pctColor(v)}"></span></div><div class="mini-val mono">${v}%</div></div>`;
+}
+function humanBytes(bytes){
+  if (bytes===null || bytes===undefined) return '—';
+  const units=['B','KB','MB','GB','TB']; let v=Number(bytes), i=0;
+  while (v>=1024 && i<units.length-1){ v/=1024; i++; }
+  return `${v.toFixed(v<10&&i>0?1:0)} ${units[i]}`;
+}
+function formatUptime(seconds){
+  if (!seconds) return '—';
+  seconds = Number(seconds);
+  const d = Math.floor(seconds/86400), h = Math.floor((seconds%86400)/3600), m = Math.floor((seconds%3600)/60);
+  if (d>0) return `${d}d ${h}h`;
+  if (h>0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+function formatLastSeen(iso){
+  if (!iso) return 'Never';
+  const s = (Date.now()-new Date(iso).getTime())/1000;
+  if (s<45) return 'Just now';
+  if (s<3600) return Math.round(s/60)+' min ago';
+  if (s<86400) return Math.round(s/3600)+' h ago';
+  return Math.round(s/86400)+' d ago';
+}
+function tagValue(tags, prefix){
+  if (!tags || !tags.length) return null;
+  const t = tags.find(x=>x.startsWith(prefix+':'));
+  return t ? t.split(':')[1] : null;
+}
+function healthHeuristic(status, alertCount){
+  if (status==='offline') return 0;
+  if (status==='critical') return Math.max(20, 50 - alertCount*5);
+  if (status==='warning') return Math.max(55, 80 - alertCount*5);
+  return 96;
+}
+
+function mapServer(row){
+  const cpu = row.cpu_usage!=null ? Math.round(Number(row.cpu_usage)) : null;
+  const ram = row.ram_usage!=null ? Math.round(Number(row.ram_usage)) : null;
+  const disk = row.disk_usage!=null ? Math.round(Number(row.disk_usage)) : null;
+  return {
+    uuid: row.id, id: row.name, name: row.name, status: row.status,
+    ip: row.ip_address || '—', os: row.os || '—',
+    osFam: (row.os||'').toLowerCase().includes('windows') ? 'Windows' : 'Linux',
+    type: row.type || '—', env: row.environment || '—',
+    role: tagValue(row.tags,'role') || '—', loc: tagValue(row.tags,'location') || '—',
+    cpu, ram, disk,
+    dataTransferred: humanBytes((Number(row.network_rx)||0) + (Number(row.network_tx)||0)),
+    uptime: formatUptime(row.uptime_seconds), lastSeen: formatLastSeen(row.last_seen_at),
+    cores: row.cores || '—', threads: row.threads || row.cores || '—',
+    ramTotal: row.ram_total_gb!=null ? Number(row.ram_total_gb) : null,
+    ramUsed: (row.ram_total_gb!=null && ram!=null) ? round2(row.ram_total_gb*ram/100) : null,
+    diskTotal: row.disk_total_gb!=null ? Number(row.disk_total_gb) : null,
+    diskUsed: (row.disk_total_gb!=null && disk!=null) ? round2(row.disk_total_gb*disk/100) : null,
+    temp: row.temperature!=null ? Math.round(Number(row.temperature)) : null,
+    hostname: row.hostname || row.name, kernel: row.os_version || '—',
+    load: (row.load_1!=null) ? `${row.load_1} · ${row.load_5} · ${row.load_15}` : '—',
+    agentVer: row.agent_version || '—',
+    agentStatus: row.status==='offline' ? 'Offline' : (row.agent_version ? 'Online' : 'Pending install'),
+    installed: (row.created_at||'').slice(0,10),
+    health: healthHeuristic(row.status, row.active_alert_count||0),
+    activeAlertCount: row.active_alert_count || 0,
+  };
+}
+function mapAlert(row){
+  return {
+    id: row.id, time: formatLastSeen(row.started_at), server: row.server_name,
+    metric: METRIC_LABEL[row.metric] || row.metric, severity: row.severity,
+    value: row.value!=null ? `${row.value}${METRIC_UNIT[row.metric]||''}` : '—',
+    threshold: row.threshold!=null ? `${row.threshold}${METRIC_UNIT[row.metric]||''}` : '—',
+    status: row.status.charAt(0).toUpperCase()+row.status.slice(1),
+  };
+}
+
+/* ---------------- State + data loading ---------------- */
+let servers = [];
+let alerts = [];
+
+async function loadAll(silent){
+  try{
+    const [serverRows, alertRows] = await Promise.all([
+      apiFetch('/api/monitoring/servers'),
+      apiFetch('/api/monitoring/alerts'),
+    ]);
+    servers = serverRows.map(mapServer);
+    alerts = alertRows.map(mapAlert);
+    setApiBanner(null);
+  }catch(err){
+    if (!silent) setApiBanner(`Can't reach the API at ${API_BASE} — is it running? (${err.message})`);
+    return;
+  }
+  renderStats(); renderResourceStrip(); renderHealthTable(); renderAlertsPanel(); renderHeatmap();
+  renderServersTable(); renderAlertsTable(); renderAgents();
+  if (document.getElementById('view-detail').classList.contains('active') && currentServer){
+    const fresh = servers.find(s=>s.id===currentServer.id);
+    if (fresh){ currentServer = fresh; renderDetailStatic(); }
+  }
+}
+
+/* ---------------- Rendering: overview ---------------- */
+function renderStats(){
+  const total = servers.length;
+  const healthy = servers.filter(s=>s.status==='healthy').length;
+  const warn = servers.filter(s=>s.status==='warning').length;
+  const crit = servers.filter(s=>s.status==='critical').length;
+  const off = servers.filter(s=>s.status==='offline').length;
+  const rows = [
+    {n:total,l:'Total servers',c:''}, {n:healthy,l:'Healthy',c:'ok'}, {n:warn,l:'Warning',c:'warn'},
+    {n:crit,l:'Critical',c:'crit'}, {n:off,l:'Offline',c:'off'},
+  ];
+  document.getElementById('statRow').innerHTML = rows.map(r=>`
+    <div class="stat-card ${r.c}"><div class="stat-num">${r.n}</div><div class="stat-label">${r.l}</div></div>
+  `).join('');
+  document.getElementById('nav-servers-count').textContent = total;
+  document.getElementById('nav-alerts-count').textContent = alerts.filter(a=>a.status==='Active').length;
+  document.getElementById('serverHealthSub').textContent = `${total} servers`;
+  document.getElementById('activeAlertsSub').textContent = `${alerts.filter(a=>a.status==='Active').length} active`;
+}
+function avg(key){
+  const vals = servers.map(s=>s[key]).filter(v=>v!=null);
+  return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length) : 0;
+}
+function renderResourceStrip(){
+  const online = servers.filter(s=>s.status!=='offline').length;
+  const items = [
+    {label:'CPU', val: avg('cpu')+'%', pct: avg('cpu')},
+    {label:'RAM', val: avg('ram')+'%', pct: avg('ram')},
+    {label:'Storage', val: avg('disk')+'%', pct: avg('disk')},
+    {label:'Agents online', val: `${online}/${servers.length}`, pct: servers.length ? Math.round(online/servers.length*100) : 0},
+  ];
+  document.getElementById('resStrip').innerHTML = items.map(i=>`
+    <div class="res-card">
+      <div class="res-top"><span class="res-name">${i.label}</span><span class="res-val">${i.val}</span></div>
+      <div class="bar"><div class="bar-fill" style="width:${i.pct}%;background:${pctColor(i.pct)}"></div></div>
+    </div>`).join('');
+}
+function renderHealthTable(){
+  const sorted = [...servers].sort((a,b)=> ((b.cpu||0)+(b.ram||0)+(b.disk||0)) - ((a.cpu||0)+(a.ram||0)+(a.disk||0)));
+  document.getElementById('healthTableBody').innerHTML = sorted.slice(0,8).map(s=>`
+    <tr onclick="openDetail('${s.id}')">
+      <td><div class="cell-name">${s.id}</div><div class="cell-sub">${s.ip}</div></td>
+      <td>${miniMetric(s.cpu)}</td><td>${miniMetric(s.ram)}</td><td>${miniMetric(s.disk)}</td>
+      <td>${badge(s.status)}</td>
+    </tr>`).join('') || `<tr><td colspan="5"><div class="empty">No servers registered yet — click "+ Add server" to register one.</div></td></tr>`;
+}
+function renderAlertsPanel(){
+  const active = alerts.filter(a=>a.status==='Active');
+  const el = document.getElementById('activeAlertsList');
+  if(!active.length){ el.innerHTML = '<div class="empty">No active alerts. All clear.</div>'; return; }
+  el.innerHTML = active.map(a=>`
+    <div class="alert-row">
+      <div class="alert-sev" style="background:${SEV[a.severity].c}"></div>
+      <div class="alert-main">
+        <div class="alert-msg">${a.server} · ${a.metric} at ${a.value}</div>
+        <div class="alert-meta">${SEV[a.severity].label} · threshold ${a.threshold} · ${a.time}</div>
+      </div>
+    </div>`).join('');
+}
+function renderHeatmap(){
+  const cellStyle = v => {
+    if (v===null) return `background:var(--off-bg);color:var(--off)`;
+    const c = v>=90?['var(--crit-bg)','var(--crit)']: v>=75?['var(--warn-bg)','var(--warn)']:['var(--ok-bg)','var(--ok)'];
+    return `background:${c[0]};color:${c[1]}`;
+  };
+  document.getElementById('heatmapBody').innerHTML = servers.map(s=>`
+    <div class="heatmap-row">
+      <div class="hm-name">${s.id}</div>
+      <div class="hm-cell" style="${cellStyle(s.cpu)}">${s.cpu??'—'}${s.cpu!=null?'%':''}</div>
+      <div class="hm-cell" style="${cellStyle(s.ram)}">${s.ram??'—'}${s.ram!=null?'%':''}</div>
+      <div class="hm-cell" style="${cellStyle(s.disk)}">${s.disk??'—'}${s.disk!=null?'%':''}</div>
+    </div>`).join('') || `<div class="empty">No servers yet.</div>`;
+}
+
+/* ---- Servers view ---- */
+let serverFilter = 'all';
+const filterDefs = [
+  {k:'all', l:'All'}, {k:'healthy', l:'Healthy'}, {k:'warning', l:'Warning'}, {k:'critical', l:'Critical'},
+  {k:'offline', l:'Offline'}, {k:'Windows', l:'Windows'}, {k:'Linux', l:'Linux'}, {k:'Docker host', l:'Docker host'}, {k:'Virtual machine', l:'Virtual machine'},
+];
+function renderServerFilters(){
+  document.getElementById('serverFilters').innerHTML = filterDefs.map(f=>
+    `<span class="chip ${serverFilter===f.k?'active':''}" data-f="${f.k}">${f.l}</span>`
+  ).join('') + `<input class="search-input" id="serverSearch" placeholder="Search servers…">`;
+  document.querySelectorAll('#serverFilters .chip').forEach(c=>c.onclick=()=>{ serverFilter=c.dataset.f; renderServerFilters(); renderServersTable(); });
+  document.getElementById('serverSearch').oninput = renderServersTable;
+}
+function renderServersTable(){
+  const q = (document.getElementById('serverSearch')?.value||'').toLowerCase();
+  let list = servers.filter(s=>{
+    if(serverFilter==='all') return true;
+    if(['healthy','warning','critical','offline'].includes(serverFilter)) return s.status===serverFilter;
+    if(serverFilter==='Windows') return s.osFam==='Windows';
+    if(serverFilter==='Linux') return s.osFam==='Linux';
+    return s.type===serverFilter;
+  });
+  if(q) list = list.filter(s=> s.id.toLowerCase().includes(q) || s.ip.includes(q) || s.os.toLowerCase().includes(q));
+  document.getElementById('serversTableBody').innerHTML = list.map(s=>`
+    <tr onclick="openDetail('${s.id}')">
+      <td><div class="cell-name">${s.id}</div><div class="cell-sub">${s.hostname}</div></td>
+      <td>${badge(s.status)}</td><td class="mono">${s.ip}</td><td>${s.os}</td>
+      <td>${miniMetric(s.cpu)}</td><td>${miniMetric(s.ram)}</td><td>${miniMetric(s.disk)}</td>
+      <td class="mono">${s.dataTransferred}</td><td class="mono">${s.uptime}</td><td class="mono">${s.lastSeen}</td>
+    </tr>`).join('') || `<tr><td colspan="10"><div class="empty">No servers match this filter.</div></td></tr>`;
+}
+
+/* ---- Alerts view ---- */
+let alertFilter = 'all';
+const alertFilterDefs = [{k:'all',l:'All'},{k:'Active',l:'Active'},{k:'Acknowledged',l:'Acknowledged'},{k:'Resolved',l:'Resolved'}];
+function renderAlertFilters(){
+  document.getElementById('alertFilters').innerHTML = alertFilterDefs.map(f=>
+    `<span class="chip ${alertFilter===f.k?'active':''}" data-f="${f.k}">${f.l}</span>`).join('');
+  document.querySelectorAll('#alertFilters .chip').forEach(c=>c.onclick=()=>{ alertFilter=c.dataset.f; renderAlertFilters(); renderAlertsTable(); });
+}
+function renderAlertsTable(){
+  let list = alerts.filter(a=> alertFilter==='all' || a.status===alertFilter);
+  document.getElementById('alertsTableBody').innerHTML = list.map(a=>`
+    <tr onclick="openDetail('${a.server}')">
+      <td class="mono">${a.time}</td><td class="cell-name">${a.server}</td><td>${a.metric}</td>
+      <td><span class="badge" style="background:${SEV[a.severity].bg};color:${SEV[a.severity].c}"><span class="dot" style="background:${SEV[a.severity].c}"></span>${SEV[a.severity].label}</span></td>
+      <td class="mono">${a.value}</td><td class="mono">${a.threshold}</td>
+      <td>${a.status}${a.status==='Active' ? ` <button class="token-copy" style="margin-left:6px" onclick="event.stopPropagation();ackAlert('${a.id}')">Acknowledge</button>` : ''}</td>
+    </tr>`).join('') || `<tr><td colspan="7"><div class="empty">No alerts in this state.</div></td></tr>`;
+}
+async function ackAlert(id){
+  const key = localStorage.getItem('tarmoc_admin_key');
+  if (!key){ alert('Set an admin key first (click the API pill in the sidebar).'); return; }
+  try{
+    await apiFetch(`/api/monitoring/alerts/${id}/acknowledge`, { method:'POST', headers:{'X-Admin-Key':key} });
+    await loadAll();
+  }catch(err){ alert('Failed to acknowledge: ' + err.message); }
+}
+
+/* ---- Agents view (real data — agent_version/status/last_seen are genuine) ---- */
+function renderAgents(){
+  document.getElementById('agentsTableBody').innerHTML = servers.map(s=>`
+    <tr onclick="openDetail('${s.id}')">
+      <td class="cell-name">${s.id}</td><td class="mono">${s.agentVer}</td>
+      <td>${s.agentStatus==='Online'?badge('healthy'): s.agentStatus==='Offline'?badge('offline'):`<span class="badge warn"><span class="dot" style="background:var(--warn)"></span>Pending install</span>`}</td>
+      <td>${s.osFam}</td><td class="mono">${s.lastSeen}</td><td class="mono">${s.ip}</td><td class="mono">${s.installed}</td>
+    </tr>`).join('') || `<tr><td colspan="7"><div class="empty">No agents registered yet.</div></td></tr>`;
+}
+
+/* ---- Server detail ---- */
+let currentChart = null;
+let currentServer = null;
+let currentMetric = 'cpu';
+let currentRange = '24h';
+let currentHistory = [];
+const RANGES = ['1h','6h','24h','7d','30d'];
+const METRIC_FIELD = {cpu:'cpu_usage', ram:'ram_usage', disk:'disk_usage', temp:'temperature'};
+
+async function openDetail(id){
+  currentServer = servers.find(s=>s.id===id);
+  if(!currentServer) return;
+  switchView('detail');
+  currentMetric = 'cpu'; currentRange = '24h';
+  renderDetailStatic();
+  await loadHistoryAndRenderChart();
+}
+function renderDetailStatic(){
+  const s = currentServer;
+  document.getElementById('dTitle').textContent = s.id;
+  document.getElementById('dBadge').innerHTML = badge(s.status);
+  document.getElementById('dInfoGrid').innerHTML = [
+    ['Hostname', s.hostname], ['IP address', s.ip], ['OS', s.os], ['Kernel/version', s.kernel],
+    ['Environment', s.env], ['Location', s.loc], ['Uptime', s.uptime], ['Load avg', s.load],
+    ['Agent', `${s.agentVer} · ${s.agentStatus}`], ['Cores / threads', `${s.cores} / ${s.threads}`],
+    ['Tags', 'role:'+s.role], ['Last seen', s.lastSeen],
+  ].map(([k,v])=>`<div>${k}<b>${v}</b></div>`).join('');
+  const hn = document.getElementById('dHealthNum');
+  hn.textContent = s.status==='offline' ? '—' : s.health;
+  hn.style.color = s.health>=85?'var(--ok)': s.health>=60?'var(--warn)':'var(--crit)';
+
+  document.getElementById('dCards').innerHTML = `
+    <div class="rcard"><div class="head"><span class="name">CPU</span><span class="pct" style="color:${pctColor(s.cpu||0)}">${s.cpu??'—'}%</span></div><div class="bar"><div class="bar-fill" style="width:${s.cpu||0}%;background:${pctColor(s.cpu||0)}"></div></div><div class="sub">${s.cores} cores${s.temp!=null?' · '+s.temp+'°C':''}</div></div>
+    <div class="rcard"><div class="head"><span class="name">RAM</span><span class="pct" style="color:${pctColor(s.ram||0)}">${s.ram??'—'}%</span></div><div class="bar"><div class="bar-fill" style="width:${s.ram||0}%;background:${pctColor(s.ram||0)}"></div></div><div class="sub">${s.ramUsed!=null?`${s.ramUsed} / ${s.ramTotal} GB`:'—'}</div></div>
+    <div class="rcard"><div class="head"><span class="name">Disk</span><span class="pct" style="color:${pctColor(s.disk||0)}">${s.disk??'—'}%</span></div><div class="bar"><div class="bar-fill" style="width:${s.disk||0}%;background:${pctColor(s.disk||0)}"></div></div><div class="sub">${s.diskUsed!=null?`${s.diskUsed} / ${s.diskTotal} GB`:'—'}</div></div>
+    <div class="rcard"><div class="head"><span class="name">Network</span><span class="pct" id="dNetRate">…</span></div><div class="bar"><div class="bar-fill" style="width:0%;background:var(--brand)"></div></div><div class="sub">${s.dataTransferred} transferred total</div></div>
+  `;
+
+  document.querySelectorAll('#dTabs .tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===currentMetric));
+  document.getElementById('dProcBody').innerHTML = `<tr><td colspan="4"><div class="empty">Process monitoring isn't collected by this agent yet.</div></td></tr>`;
+  document.getElementById('dSvcList').innerHTML = `<div class="empty">Service monitoring isn't collected by this agent yet.</div>`;
+}
+async function loadHistoryAndRenderChart(){
+  document.getElementById('dRanges').innerHTML = RANGES.map(r=>`<span class="range-chip ${r===currentRange?'active':''}" data-r="${r}">${r}</span>`).join('');
+  document.querySelectorAll('.range-chip').forEach(c=>c.onclick=()=>{ currentRange=c.dataset.r; loadHistoryAndRenderChart(); });
+
+  try{
+    currentHistory = await apiFetch(`/api/monitoring/servers/${currentServer.uuid}/history?range=${currentRange}`);
+  }catch(err){ currentHistory = []; }
+
+  // Network rate from the two most recent points (cumulative counters → Mbps)
+  const netEl = document.getElementById('dNetRate');
+  if (netEl){
+    if (currentHistory.length>=2){
+      const a = currentHistory[currentHistory.length-2], b = currentHistory[currentHistory.length-1];
+      const dt = (new Date(b.timestamp)-new Date(a.timestamp))/1000;
+      const rx = Number(b.network_rx)-Number(a.network_rx);
+      const rate = dt>0 ? Math.max(0, round2((rx*8)/1e6/dt)) : null;
+      netEl.textContent = rate!=null ? `${rate} Mbps` : '—';
+    } else { netEl.textContent = '—'; }
+  }
+
+  renderChartFromHistory();
+}
+function renderChartFromHistory(){
+  const rows = currentHistory;
+  const labels = rows.map(r => new Date(r.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}));
+  let data;
+  if (currentMetric === 'net'){
+    data = rows.map((r,i) => {
+      if (i===0) return null;
+      const dt = (new Date(r.timestamp)-new Date(rows[i-1].timestamp))/1000;
+      const drx = Number(r.network_rx)-Number(rows[i-1].network_rx);
+      return dt>0 ? Math.max(0, round2((drx*8)/1e6/dt)) : null;
+    });
+  } else {
+    data = rows.map(r => r[METRIC_FIELD[currentMetric]]!=null ? Number(r[METRIC_FIELD[currentMetric]]) : null);
+  }
+  const colorMap = {cpu:'#7C93FF', ram:'#3FBF7F', disk:'#E0A83E', net:'#7C93FF', temp:'#E5484D'};
+
+  const ctx = document.getElementById('dChart').getContext('2d');
+  if (currentChart) currentChart.destroy();
+  const styles = getComputedStyle(document.documentElement);
+  const gridColor = styles.getPropertyValue('--border-soft').trim();
+  const textColor = styles.getPropertyValue('--text-faint').trim();
+  currentChart = new Chart(ctx, {
+    type:'line',
+    data:{ labels, datasets:[{ data, borderColor: colorMap[currentMetric], backgroundColor: colorMap[currentMetric]+'22', fill:true, tension:.35, pointRadius:0, borderWidth:2, spanGaps:true }]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false}},
+      scales:{
+        x:{ grid:{color:gridColor, drawTicks:false}, ticks:{color:textColor, font:{family:'IBM Plex Mono', size:10}, maxTicksLimit:8} },
+        y:{ grid:{color:gridColor, drawTicks:false}, ticks:{color:textColor, font:{family:'IBM Plex Mono', size:10}}, suggestedMin:0 }
+      }
+    }
+  });
+
+  document.getElementById('dCoresWrap').innerHTML = currentMetric==='cpu'
+    ? `<div class="field-hint" style="padding:0 18px 14px;">Per-core breakdown isn't collected by this agent yet — this chart shows aggregate CPU only.</div>` : '';
+
+  const forecastWrap = document.getElementById('dForecastWrap');
+  const s = currentServer;
+  if (currentMetric==='disk' && s.diskTotal && s.disk!=null){
+    const remainGb = s.diskTotal*0.8 - (s.diskUsed||0);
+    const days80 = remainGb>0 ? Math.max(3, Math.round(remainGb/6)) : 0;
+    forecastWrap.innerHTML = `<div class="forecast-note"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <div>${days80>0? `Estimated ~${days80} days until 80% capacity` : 'Already past 80% capacity'} at the current usage level. Rough estimate from the current reading, not a fitted trend — accuracy improves once more history accumulates.</div></div>`;
+  } else if (currentMetric==='temp' && rows.every(r=>r.temperature==null)) {
+    forecastWrap.innerHTML = `<div class="field-hint" style="padding:0 18px 14px;">No temperature sensor detected on this server (common on VMs and cloud instances).</div>`;
+  } else { forecastWrap.innerHTML=''; }
+}
+document.getElementById('dTabs').addEventListener('click', e=>{
+  const t = e.target.closest('.tab'); if(!t) return;
+  document.querySelectorAll('#dTabs .tab').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); currentMetric = t.dataset.tab; renderChartFromHistory();
+});
+document.getElementById('backToServers').onclick = ()=> switchView('servers');
+
+/* ---------------- View switching ---------------- */
+const TITLES = {overview:'Infrastructure Monitoring', servers:'Servers', detail:'Server detail', alerts:'Alerts', docker:'Services & Docker', agents:'Agents', reports:'Reports', logs:'Activity Logs', settings:'Settings', __home:'Dashboard', __apps:'Applications', __metrics:'Metrics'};
+function switchView(key){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+key).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.view===key));
+  document.getElementById('viewTitle').textContent = TITLES[key]||key;
+  document.getElementById('sidebar').classList.remove('open');
+  window.scrollTo({top:0});
+}
+document.querySelectorAll('.nav-item').forEach(n=>{
+  n.addEventListener('click', ()=> switchView(n.dataset.view));
+});
+
+/* ---------------- Command palette ---------------- */
+let cmdSel = 0, cmdFiltered = [];
+const cmdOverlay = document.getElementById('cmdkOverlay');
+const cmdInput = document.getElementById('cmdkInput');
+function buildCmdItems(){
+  return [
+    ...servers.map(s=>({label:`Go to ${s.id}`, tag:s.status, action:()=>openDetail(s.id)})),
+    {label:'View all servers', tag:'view', action:()=>switchView('servers')},
+    {label:'View active alerts', tag:'view', action:()=>switchView('alerts')},
+    {label:'View agents', tag:'view', action:()=>switchView('agents')},
+    {label:'Add server', tag:'action', action:()=>openAddServer()},
+    {label:'Refresh data', tag:'action', action:()=>loadAll()},
+  ];
+}
+function openCmdk(){ cmdOverlay.classList.add('open'); cmdInput.value=''; cmdSel=0; renderCmdk(); setTimeout(()=>cmdInput.focus(),10); }
+function closeCmdk(){ cmdOverlay.classList.remove('open'); }
+function renderCmdk(){
+  const q = cmdInput.value.toLowerCase();
+  const all = buildCmdItems();
+  cmdFiltered = all.filter(i=>i.label.toLowerCase().includes(q));
+  document.getElementById('cmdkList').innerHTML = cmdFiltered.map((i,idx)=>`
+    <div class="cmdk-item ${idx===cmdSel?'sel':''}" data-idx="${idx}">${i.label}<span class="tag">${i.tag}</span></div>`).join('') || `<div class="empty">No matches</div>`;
+  document.querySelectorAll('.cmdk-item').forEach(el=> el.onclick=()=>{ cmdFiltered[+el.dataset.idx].action(); closeCmdk(); });
+}
+document.getElementById('cmdkOpen').onclick = openCmdk;
+cmdInput.addEventListener('input', ()=>{ cmdSel=0; renderCmdk(); });
+cmdOverlay.addEventListener('click', e=>{ if(e.target===cmdOverlay) closeCmdk(); });
+document.addEventListener('keydown', e=>{
+  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='k'){ e.preventDefault(); cmdOverlay.classList.contains('open')?closeCmdk():openCmdk(); }
+  if(e.key==='Escape') closeCmdk();
+  if(cmdOverlay.classList.contains('open')){
+    if(e.key==='ArrowDown'){ e.preventDefault(); cmdSel=Math.min(cmdFiltered.length-1,cmdSel+1); renderCmdk(); }
+    if(e.key==='ArrowUp'){ e.preventDefault(); cmdSel=Math.max(0,cmdSel-1); renderCmdk(); }
+    if(e.key==='Enter'){ if(cmdFiltered[cmdSel]){ cmdFiltered[cmdSel].action(); closeCmdk(); } }
+  }
+});
+
+/* ---------------- Add server modal (real API call) ---------------- */
+const addOverlay = document.getElementById('addServerOverlay');
+function resetAddServerForm(){
+  ['fName','fHost','fIp','fTags'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('fOs').selectedIndex=0;
+  document.getElementById('fEnv').selectedIndex=0;
+  document.getElementById('fType').selectedIndex=0;
+  document.getElementById('fAdminKey').value = localStorage.getItem('tarmoc_admin_key') || '';
+  document.getElementById('addServerFormWrap').style.display='block';
+  document.getElementById('addServerSuccessWrap').style.display='none';
+  document.getElementById('addServerFootForm').style.display='flex';
+  document.getElementById('addServerFootDone').style.display='none';
+  document.getElementById('addServerTitle').textContent='Add server';
+  document.getElementById('addServerSub').textContent='Register a new server or PC to start monitoring it';
+  document.getElementById('addServerError').style.display='none';
+}
+function openAddServer(){ resetAddServerForm(); addOverlay.classList.add('open'); setTimeout(()=>document.getElementById('fName').focus(),10); }
+function closeAddServer(){ addOverlay.classList.remove('open'); }
+document.getElementById('addServerBtn').onclick = openAddServer;
+document.getElementById('addServerClose').onclick = closeAddServer;
+document.getElementById('addServerCancel').onclick = closeAddServer;
+addOverlay.addEventListener('click', e=>{ if(e.target===addOverlay) closeAddServer(); });
+
+document.getElementById('addServerSubmit').onclick = async ()=>{
+  const name = document.getElementById('fName').value.trim();
+  const ip = document.getElementById('fIp').value.trim();
+  const adminKey = document.getElementById('fAdminKey').value.trim();
+  const errEl = document.getElementById('addServerError');
+  errEl.style.display = 'none';
+  if(!name || !adminKey){
+    document.getElementById('fName').style.borderColor = name?'var(--border)':'var(--crit)';
+    document.getElementById('fAdminKey').style.borderColor = adminKey?'var(--border)':'var(--crit)';
+    errEl.textContent = 'Server name and admin key are required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  localStorage.setItem('tarmoc_admin_key', adminKey);
+
+  const payload = {
+    name, hostname: document.getElementById('fHost').value.trim() || undefined, ip_address: ip || undefined,
+    os: document.getElementById('fOs').value, environment: document.getElementById('fEnv').value,
+    type: document.getElementById('fType').value,
+    tags: document.getElementById('fTags').value.split(',').map(t=>t.trim()).filter(Boolean),
+  };
+  try{
+    const result = await apiFetch('/api/monitoring/servers', { method:'POST', headers:{'X-Admin-Key':adminKey}, body: JSON.stringify(payload) });
+    document.getElementById('successName').textContent = `${result.name} added — waiting for first heartbeat`;
+    document.getElementById('genToken').textContent = result.token;
+    document.getElementById('installCmd').textContent = `SERVER_NAME=${result.name} AGENT_TOKEN=${result.token} node agent.js`;
+    document.getElementById('addServerFormWrap').style.display='none';
+    document.getElementById('addServerSuccessWrap').style.display='block';
+    document.getElementById('addServerFootForm').style.display='none';
+    document.getElementById('addServerFootDone').style.display='flex';
+    document.getElementById('addServerTitle').textContent='Registration complete';
+    document.getElementById('addServerSub').textContent=result.name;
+    await loadAll();
+  }catch(err){
+    errEl.textContent = err.status===401 ? 'Admin key rejected — check it matches ADMIN_API_KEY on the API.' : `Failed: ${err.message}`;
+    errEl.style.display = 'block';
+  }
+};
+document.getElementById('copyToken').onclick = ()=>{
+  const t = document.getElementById('genToken').textContent;
+  navigator.clipboard?.writeText(t).catch(()=>{});
+  const btn = document.getElementById('copyToken');
+  btn.textContent='Copied'; setTimeout(()=>btn.textContent='Copy',1400);
+};
+document.getElementById('addServerDoneBtn').onclick = ()=>{ closeAddServer(); switchView('servers'); };
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && addOverlay.classList.contains('open')) closeAddServer(); });
+
+/* ---------------- API base pill (click to change) ---------------- */
+function renderApiPill(){
+  const el = document.getElementById('apiPill');
+  if (el) el.textContent = `API: ${API_BASE}`;
+}
+document.getElementById('apiPill')?.addEventListener('click', ()=>{
+  const next = prompt('TARMOC API base URL (browser-reachable):', API_BASE);
+  if (next && next.trim()){ localStorage.setItem('tarmoc_api_base', next.trim()); location.reload(); }
+});
+
+/* ---------------- Theme ---------------- */
+function applyThemeIcon(){
+  const t = document.documentElement.getAttribute('data-theme');
+  const isLight = t==='light';
+  document.getElementById('themeIcon').innerHTML = isLight
+    ? '<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>'
+    : '<path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/><circle cx="12" cy="12" r="4.5"/>';
+}
+document.getElementById('themeToggle').onclick = ()=>{
+  const cur = document.documentElement.getAttribute('data-theme');
+  const next = cur==='light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  try{ localStorage.setItem('tarmoc-theme', next);}catch(e){}
+  applyThemeIcon();
+  if (currentChart) renderChartFromHistory();
+};
+try{ const saved = localStorage.getItem('tarmoc-theme'); if (saved) document.documentElement.setAttribute('data-theme', saved); }catch(e){}
+applyThemeIcon();
+
+/* Mobile sidebar */
+const menuBtn = document.getElementById('menuBtn');
+function checkMobile(){ menuBtn.style.display = window.innerWidth<=760 ? 'flex' : 'none'; }
+menuBtn.onclick = ()=> document.getElementById('sidebar').classList.toggle('open');
+window.addEventListener('resize', checkMobile);
+checkMobile();
+
+/* ---------------- Init ---------------- */
+renderApiPill();
+renderServerFilters(); renderAlertFilters();
+loadAll();
+setInterval(()=>loadAll(true), 15000);
+
+</script>
+</body>
+</html>

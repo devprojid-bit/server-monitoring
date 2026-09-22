@@ -1,0 +1,68 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tarmoc-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tarmoc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tarmoc_password}
+      POSTGRES_DB: ${POSTGRES_DB:-tarmoc}
+    volumes:
+      - tarmoc_pg_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tarmoc}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./api
+    container_name: tarmoc-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER:-tarmoc}:${POSTGRES_PASSWORD:-tarmoc_password}@postgres:5432/${POSTGRES_DB:-tarmoc}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-change_me_admin_key}
+      OFFLINE_AFTER_SECONDS: ${OFFLINE_AFTER_SECONDS:-90}
+    ports:
+      - "${API_PORT:-4000}:4000"
+
+  dashboard:
+    build: ./dashboard
+    container_name: tarmoc-dashboard
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${DASHBOARD_PORT:-8088}:80"
+
+  agent:
+    build: ./agent
+    container_name: tarmoc-agent
+    restart: unless-stopped
+    depends_on:
+      - api
+    network_mode: host
+    pid: host
+    environment:
+      API_URL: http://localhost:${API_PORT:-4000}
+      SERVER_NAME: ${AGENT_SERVER_NAME:-tarmoc-ai}
+      ENVIRONMENT: ${AGENT_ENVIRONMENT:-production}
+      SERVER_TYPE: ${AGENT_TYPE:-Physical server}
+      TAGS: ${AGENT_TAGS:-role:host}
+      INTERVAL_SECONDS: ${AGENT_INTERVAL_SECONDS:-15}
+      DISK_PATH: /hostfs
+      AGENT_STATE_FILE: /app/state/state.json
+    volumes:
+      - /:/hostfs:ro
+      - tarmoc_agent_state:/app/state
+
+volumes:
+  tarmoc_pg_data:
+  tarmoc_agent_state:
