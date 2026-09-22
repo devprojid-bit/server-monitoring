@@ -493,7 +493,7 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="panel-body">
             <table>
               <thead><tr>
-                <th>Server</th><th>Status</th><th>IP</th><th>OS</th><th>CPU</th><th>RAM</th><th>Disk</th><th>Network</th><th>Uptime</th><th>Last seen</th>
+                <th>Server</th><th>Status</th><th>IP</th><th>OS</th><th>CPU</th><th>RAM</th><th>Disk</th><th>Network</th><th>Uptime</th><th>Last seen</th><th>Actions</th>
               </tr></thead>
               <tbody id="serversTableBody"></tbody>
             </table>
@@ -512,6 +512,10 @@ tbody tr:last-child td{border-bottom:none;}
           <div class="health-score">
             <div class="num" id="dHealthNum">—</div>
             <div class="lbl">Health score</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;flex:none;">
+            <button class="btn btn-ghost" id="dEditBtn">Edit</button>
+            <button class="btn btn-ghost" id="dDeleteBtn" style="color:var(--crit);border-color:var(--crit);">Delete</button>
           </div>
         </div>
 
@@ -718,6 +722,33 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
     <div class="modal-foot" id="addServerFootDone" style="display:none;">
       <button class="btn btn-brand" id="addServerDoneBtn">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="deleteServerOverlay">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>
+        <h3>Delete server</h3>
+        <p>This removes the server and its metric history. It can't be undone.</p>
+      </div>
+      <div class="modal-close" id="deleteServerClose"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></div>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Type <b id="deleteServerNameLabel" style="font-family:var(--mono);"></b> to confirm</label>
+        <input id="deleteConfirmInput" placeholder="server name">
+      </div>
+      <div class="field">
+        <label for="fDeleteAdminKey">Admin key</label>
+        <input id="fDeleteAdminKey" type="password" placeholder="ADMIN_API_KEY">
+      </div>
+      <div id="deleteServerError" style="display:none;color:var(--crit);font-size:12px;background:var(--crit-bg);border-radius:8px;padding:9px 12px;"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="deleteServerCancel">Cancel</button>
+      <button class="btn btn-brand" id="deleteServerConfirm" style="background:var(--crit);color:#fff;">Delete server</button>
     </div>
   </div>
 </div>
@@ -972,7 +1003,11 @@ function renderServersTable(){
       <td>${badge(s.status)}</td><td class="mono">${s.ip}</td><td>${s.os}</td>
       <td>${miniMetric(s.cpu)}</td><td>${miniMetric(s.ram)}</td><td>${miniMetric(s.disk)}</td>
       <td class="mono">${s.dataTransferred}</td><td class="mono">${s.uptime}</td><td class="mono">${s.lastSeen}</td>
-    </tr>`).join('') || `<tr><td colspan="10"><div class="empty">No servers match this filter.</div></td></tr>`;
+      <td>
+        <button class="token-copy" onclick="event.stopPropagation();openEditServer('${s.id}')">Edit</button>
+        <button class="token-copy" style="color:var(--crit);border-color:var(--crit);margin-left:6px;" onclick="event.stopPropagation();openDeleteConfirm('${s.id}')">Delete</button>
+      </td>
+    </tr>`).join('') || `<tr><td colspan="11"><div class="empty">No servers match this filter.</div></td></tr>`;
 }
 
 /* ---- Alerts view ---- */
@@ -1053,6 +1088,9 @@ function renderDetailStatic(){
   document.querySelectorAll('#dTabs .tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===currentMetric));
   document.getElementById('dProcBody').innerHTML = `<tr><td colspan="4"><div class="empty">Process monitoring isn't collected by this agent yet.</div></td></tr>`;
   document.getElementById('dSvcList').innerHTML = `<div class="empty">Service monitoring isn't collected by this agent yet.</div>`;
+
+  document.getElementById('dEditBtn').onclick = ()=> openEditServer(s.id);
+  document.getElementById('dDeleteBtn').onclick = ()=> openDeleteConfirm(s.id);
 }
 async function loadHistoryAndRenderChart(){
   document.getElementById('dRanges').innerHTML = RANGES.map(r=>`<span class="range-chip ${r===currentRange?'active':''}" data-r="${r}">${r}</span>`).join('');
@@ -1182,8 +1220,10 @@ document.addEventListener('keydown', e=>{
   }
 });
 
-/* ---------------- Add server modal (real API call) ---------------- */
+/* ---------------- Add / Edit server modal (real API calls) ---------------- */
 const addOverlay = document.getElementById('addServerOverlay');
+let editingServerId = null; // null = add mode, else = slug of server being edited
+
 function resetAddServerForm(){
   ['fName','fHost','fIp','fTags'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('fOs').selectedIndex=0;
@@ -1194,11 +1234,36 @@ function resetAddServerForm(){
   document.getElementById('addServerSuccessWrap').style.display='none';
   document.getElementById('addServerFootForm').style.display='flex';
   document.getElementById('addServerFootDone').style.display='none';
+  document.getElementById('addServerError').style.display='none';
+  document.getElementById('addServerSubmit').textContent = 'Register server';
   document.getElementById('addServerTitle').textContent='Add server';
   document.getElementById('addServerSub').textContent='Register a new server or PC to start monitoring it';
-  document.getElementById('addServerError').style.display='none';
 }
-function openAddServer(){ resetAddServerForm(); addOverlay.classList.add('open'); setTimeout(()=>document.getElementById('fName').focus(),10); }
+function openAddServer(){
+  editingServerId = null;
+  resetAddServerForm();
+  addOverlay.classList.add('open');
+  setTimeout(()=>document.getElementById('fName').focus(),10);
+}
+function openEditServer(id){
+  const s = servers.find(x=>x.id===id);
+  if(!s) return;
+  editingServerId = id;
+  resetAddServerForm();
+  document.getElementById('fName').value = s.name;
+  document.getElementById('fHost').value = s.hostname==='—'?'':s.hostname;
+  document.getElementById('fIp').value = s.ip==='—'?'':s.ip;
+  document.getElementById('fEnv').value = s.env==='—'?'production':s.env;
+  document.getElementById('fType').value = s.type==='—'?'Virtual machine':s.type;
+  document.getElementById('fTags').value = s.role!=='—' ? `role:${s.role}` + (s.loc!=='—'?`, location:${s.loc}`:'') : (s.loc!=='—'?`location:${s.loc}`:'');
+  const osSelect = document.getElementById('fOs');
+  if ([...osSelect.options].some(o=>o.value===s.os)) osSelect.value = s.os;
+  document.getElementById('addServerTitle').textContent = 'Edit server';
+  document.getElementById('addServerSub').textContent = s.name;
+  document.getElementById('addServerSubmit').textContent = 'Save changes';
+  addOverlay.classList.add('open');
+  setTimeout(()=>document.getElementById('fName').focus(),10);
+}
 function closeAddServer(){ addOverlay.classList.remove('open'); }
 document.getElementById('addServerBtn').onclick = openAddServer;
 document.getElementById('addServerClose').onclick = closeAddServer;
@@ -1226,6 +1291,21 @@ document.getElementById('addServerSubmit').onclick = async ()=>{
     type: document.getElementById('fType').value,
     tags: document.getElementById('fTags').value.split(',').map(t=>t.trim()).filter(Boolean),
   };
+
+  if (editingServerId){
+    try{
+      const target = servers.find(x=>x.id===editingServerId);
+      await apiFetch(`/api/monitoring/servers/${target.uuid}`, { method:'PUT', headers:{'X-Admin-Key':adminKey}, body: JSON.stringify(payload) });
+      closeAddServer();
+      await loadAll();
+      if (currentServer && currentServer.id===editingServerId) openDetail(name);
+    }catch(err){
+      errEl.textContent = err.status===401 ? 'Admin key rejected — check it matches ADMIN_API_KEY on the API.' : `Failed: ${err.message}`;
+      errEl.style.display = 'block';
+    }
+    return;
+  }
+
   try{
     const result = await apiFetch('/api/monitoring/servers', { method:'POST', headers:{'X-Admin-Key':adminKey}, body: JSON.stringify(payload) });
     document.getElementById('successName').textContent = `${result.name} added — waiting for first heartbeat`;
@@ -1250,6 +1330,53 @@ document.getElementById('copyToken').onclick = ()=>{
   btn.textContent='Copied'; setTimeout(()=>btn.textContent='Copy',1400);
 };
 document.getElementById('addServerDoneBtn').onclick = ()=>{ closeAddServer(); switchView('servers'); };
+
+/* ---------------- Delete server modal (dangerous action: typed confirmation + admin key) ---------------- */
+const deleteOverlay = document.getElementById('deleteServerOverlay');
+let deletingServerId = null;
+function openDeleteConfirm(id){
+  const s = servers.find(x=>x.id===id);
+  if(!s) return;
+  deletingServerId = id;
+  document.getElementById('deleteServerNameLabel').textContent = s.name;
+  document.getElementById('deleteConfirmInput').value = '';
+  document.getElementById('fDeleteAdminKey').value = localStorage.getItem('tarmoc_admin_key') || '';
+  document.getElementById('deleteServerError').style.display = 'none';
+  deleteOverlay.classList.add('open');
+}
+function closeDeleteConfirm(){ deleteOverlay.classList.remove('open'); deletingServerId = null; }
+document.getElementById('deleteServerClose').onclick = closeDeleteConfirm;
+document.getElementById('deleteServerCancel').onclick = closeDeleteConfirm;
+deleteOverlay.addEventListener('click', e=>{ if(e.target===deleteOverlay) closeDeleteConfirm(); });
+document.getElementById('deleteServerConfirm').onclick = async ()=>{
+  const s = servers.find(x=>x.id===deletingServerId);
+  const errEl = document.getElementById('deleteServerError');
+  errEl.style.display = 'none';
+  if(!s) return;
+  const typed = document.getElementById('deleteConfirmInput').value.trim();
+  const adminKey = document.getElementById('fDeleteAdminKey').value.trim();
+  if (typed !== s.name){
+    errEl.textContent = `Type "${s.name}" exactly to confirm.`;
+    errEl.style.display = 'block';
+    return;
+  }
+  if (!adminKey){
+    errEl.textContent = 'Admin key is required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  localStorage.setItem('tarmoc_admin_key', adminKey);
+  try{
+    await apiFetch(`/api/monitoring/servers/${s.uuid}`, { method:'DELETE', headers:{'X-Admin-Key':adminKey} });
+    closeDeleteConfirm();
+    if (currentServer && currentServer.id===s.id) switchView('servers');
+    await loadAll();
+  }catch(err){
+    errEl.textContent = err.status===401 ? 'Admin key rejected — check it matches ADMIN_API_KEY on the API.' : `Failed: ${err.message}`;
+    errEl.style.display = 'block';
+  }
+};
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && deleteOverlay.classList.contains('open')) closeDeleteConfirm(); });
 document.addEventListener('keydown', e=>{ if(e.key==='Escape' && addOverlay.classList.contains('open')) closeAddServer(); });
 
 /* ---------------- API base pill (click to change) ---------------- */
