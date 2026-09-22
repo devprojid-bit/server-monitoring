@@ -759,8 +759,8 @@ const API_BASE = localStorage.getItem('tarmoc_api_base') || (location.protocol +
 
 async function apiFetch(pathname, opts = {}) {
   const res = await fetch(API_BASE + pathname, {
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
     ...opts,
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
