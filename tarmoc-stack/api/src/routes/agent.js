@@ -51,7 +51,15 @@ router.post('/heartbeat', requireAgentToken, async (req, res) => {
 
 // POST /api/agent/metrics  — header: X-Agent-Token
 router.post('/metrics', requireAgentToken, async (req, res) => {
-  const { cpu_usage, ram_usage, disk_usage, network_rx, network_tx, load_1, load_5, load_15, temperature } = req.body;
+  const raw = req.body;
+  // A usage percentage is never legitimately outside 0–100. Clamping here means a bug
+  // in any agent (now or a future one) can't corrupt stored history or fire bogus
+  // alerts — this is what would have silently capped the "408%" disk reading at 100%.
+  const clampPct = (v) => (v === undefined || v === null || Number.isNaN(Number(v))) ? null : Math.max(0, Math.min(100, Number(v)));
+  const cpu_usage = clampPct(raw.cpu_usage);
+  const ram_usage = clampPct(raw.ram_usage);
+  const disk_usage = clampPct(raw.disk_usage);
+  const { network_rx, network_tx, load_1, load_5, load_15, temperature } = raw;
 
   await db.query(
     `INSERT INTO server_metrics (server_id, cpu_usage, ram_usage, disk_usage, network_rx, network_tx, load_1, load_5, load_15, temperature)

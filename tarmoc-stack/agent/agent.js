@@ -65,7 +65,7 @@ function cpuUsagePercent(prev, curr) {
     totalDelta += cTotal - pTotal;
   }
   if (totalDelta <= 0) return null;
-  return Math.max(0, Math.min(100, Math.round((1 - idleDelta / totalDelta) * 1000) / 10));
+  return clampPct((1 - idleDelta / totalDelta) * 100, 'CPU usage');
 }
 
 function ramUsage() {
@@ -76,11 +76,11 @@ function ramUsage() {
       const text = fs.readFileSync('/proc/meminfo', 'utf8');
       const total = parseInt(/MemTotal:\s+(\d+)/.exec(text)[1], 10);
       const avail = parseInt(/MemAvailable:\s+(\d+)/.exec(text)[1], 10);
-      return { usagePct: Math.round(((total - avail) / total) * 1000) / 10, totalGb: round2((total * 1024) / 1e9) };
+      return { usagePct: clampPct(((total - avail) / total) * 100, 'RAM usage'), totalGb: round2((total * 1024) / 1e9) };
     } catch (e) { /* fall through */ }
   }
   const total = os.totalmem(), free = os.freemem();
-  return { usagePct: Math.round(((total - free) / total) * 1000) / 10, totalGb: round2(total / 1e9) };
+  return { usagePct: clampPct(((total - free) / total) * 100, 'RAM usage'), totalGb: round2(total / 1e9) };
 }
 
 function diskUsage(target) {
@@ -90,20 +90,45 @@ function diskUsage(target) {
       const size = parseInt(/Size=(\d+)/.exec(out)?.[1] || '0', 10);
       const free = parseInt(/FreeSpace=(\d+)/.exec(out)?.[1] || '0', 10);
       if (!size) return null;
-      return { usagePct: Math.round(((size - free) / size) * 1000) / 10, totalGb: round2(size / 1e9) };
+      return { usagePct: clampPct(((size - free) / size) * 100, 'Disk usage'), totalGb: round2(size / 1e9) };
     }
     const out = execSync(`df -k ${target}`, { encoding: 'utf8' });
-    const line = out.trim().split('\n').pop();
-    const parts = line.trim().split(/\s+/); // Filesystem 1K-blocks Used Available Use% Mounted
+    // A long filesystem/device name (common with LVM/overlay) makes df wrap it onto
+    // its own line, pushing the numeric columns to the next line. Joining every line
+    // after the header back into one string before splitting on whitespace makes the
+    // parsing correct whether df wrapped or not — this is the actual bug that caused
+    // impossible readings like "408%" (Used and Total getting read from the wrong columns).
+    const dataLines = out.trim().split('\n').slice(1);
+    const parts = dataLines.join(' ').trim().split(/\s+/); // [fs, 1K-blocks, Used, Available, Use%, ...mount]
     const totalKb = parseInt(parts[1], 10);
     const usedKb = parseInt(parts[2], 10);
-    return { usagePct: Math.round((usedKb / totalKb) * 1000) / 10, totalGb: round2((totalKb * 1024) / 1e9) };
+    if (!totalKb || Number.isNaN(usedKb)) return null;
+    return { usagePct: clampPct((usedKb / totalKb) * 100, 'Disk usage'), totalGb: round2((totalKb * 1024) / 1e9) };
   } catch (e) {
     return null;
   }
 }
 
+// Belt-and-suspenders: a usage percentage can never legitimately be outside 0–100.
+// If any reader (now or in the future) miscalculates, this clamps it instead of
+// displaying nonsense — and logs a warning so the underlying bug doesn't go unnoticed
+// just because the symptom is hidden. label identifies which reading triggered it.
+function clampPct(n, label) {
+  if (Number.isNaN(n)) return null;
+  if (n < 0 || n > 100) {
+    log(`WARNING: ${label || 'a metric'} computed as ${round2(n)}% — clamping to 0-100. This usually means a parsing bug; worth checking manually with the underlying command (df/free/etc).`);
+  }
+  return Math.round(Math.max(0, Math.min(100, n)) * 10) / 10;
+}
+
 let lastNetSample = null; // { bytes: {rx, tx}, at: ms }
+// Interfaces that don't represent real external network traffic — Docker bridges,
+// veth pairs (one per container), and similar virtual plumbing. On a host running
+// many containers, summing these alongside the real NIC double- and triple-counts
+// internal traffic and massively inflates the reported Mbps. Only physical/real
+// NICs (eth0, ens*, enp*, wlan0, bond0, etc.) should count toward the total.
+const VIRTUAL_IFACE_PATTERN = /^(lo|docker\d*|veth|br-|virbr|tun|tap|cni|flannel|cali|vxlan|wg|zt|ifb)/;
+
 function networkRateMbps() {
   if (process.platform !== 'linux') return { rxMbps: null, txMbps: null };
   try {
@@ -113,7 +138,7 @@ function networkRateMbps() {
       const [ifacePart, rest] = line.split(':');
       if (!rest) return;
       const iface = (ifacePart || '').trim();
-      if (!iface || iface === 'lo') return;
+      if (!iface || VIRTUAL_IFACE_PATTERN.test(iface)) return;
       const cols = rest.trim().split(/\s+/).map(Number);
       rx += cols[0] || 0; // bytes received
       tx += cols[8] || 0; // bytes transmitted
