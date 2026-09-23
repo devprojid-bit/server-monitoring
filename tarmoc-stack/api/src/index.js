@@ -8,11 +8,12 @@ const db = require('./db');
 const serversRoute = require('./routes/servers').router;
 const agentRoute = require('./routes/agent');
 const alertsRoute = require('./routes/alerts');
+const containersRoute = require('./routes/containers');
 
 const app = express();
 app.use(helmet());
 app.use(cors());
-app.use(express.json({ limit: '256kb' }));
+app.use(express.json({ limit: '1mb' })); // raised from 256kb to fit container-list payloads on hosts with many containers
 
 // Basic rate limiting per MD-02 section 34. Agent ingestion gets a higher ceiling
 // than admin/dashboard routes since it's called every few seconds per server.
@@ -30,6 +31,7 @@ app.get('/health', async (req, res) => {
 
 app.use('/api/monitoring/servers', serversRoute);
 app.use('/api/monitoring/alerts', alertsRoute);
+app.use('/api/monitoring/containers', containersRoute);
 app.use('/api/agent', agentRoute);
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));

@@ -70,6 +70,18 @@ on. To add another server:
   Extending the agent to collect these is a natural next step, same pattern
   as the metrics it already sends.
 
+## Security note on Docker monitoring
+
+The agent mounts `/var/run/docker.sock` to read container stats. Be aware:
+`:ro` on that mount only stops the container from writing to the socket *file* —
+it doesn't restrict which Docker API calls can be made once connected. Anything
+with access to that socket can, in principle, do anything the Docker daemon can,
+including starting/stopping containers on the host. This agent's code only ever
+makes read-only calls (`/version`, `/containers/json`, `/containers/{id}/stats`,
+`/containers/{id}/json`) — but the access itself is powerful, so treat the
+`tarmoc-agent` container as trusted infrastructure, not something to expose or
+run with looser isolation than the host it's monitoring.
+
 ## Troubleshooting
 
 - **Dashboard shows "Can't reach the API..."** — the browser (not the

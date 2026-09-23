@@ -569,10 +569,16 @@ tbody tr:last-child td{border-bottom:none;}
 
       <!-- DOCKER & SERVICES -->
       <section class="view" id="view-docker">
-        <div class="panel"><div class="placeholder">
-          <h3>Services &amp; Docker</h3>
-          <p>Not collected by the agent yet in this MVP — the agent currently reports CPU, RAM, disk, network, load average, uptime and temperature. Container and service-level monitoring is a straightforward extension of the same agent (see the API README's "What's not in this MVP yet").</p>
-        </div></div>
+        <div class="filter-row" id="containerFilters"></div>
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">Containers</div><div class="panel-sub" id="containersSub"></div></div>
+          <div class="panel-body">
+            <table>
+              <thead><tr><th>Container</th><th>Server</th><th>Image</th><th>Status</th><th>CPU</th><th>RAM</th><th>Restarts</th></tr></thead>
+              <tbody id="containersTableBody"></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- AGENTS -->
@@ -602,10 +608,86 @@ tbody tr:last-child td{border-bottom:none;}
         </div></div>
       </section>
       <section class="view" id="view-settings">
-        <div class="panel"><div class="placeholder">
-          <h3>Settings</h3>
-          <p>Thresholds, notification channels, roles and permissions, and retention policy live here. Nothing in this preview is wired to real settings yet.</p>
-        </div></div>
+        <div class="panel" style="margin-bottom:16px;">
+          <div class="panel-head"><div class="panel-title">Connection</div></div>
+          <div class="panel-body pad">
+            <div class="field-row">
+              <div class="field">
+                <label for="setApiBase">API base URL</label>
+                <input id="setApiBase" placeholder="http://10.0.150.61:4000">
+              </div>
+              <div class="field">
+                <label for="setAdminKey">Admin key</label>
+                <input id="setAdminKey" type="password" placeholder="ADMIN_API_KEY">
+              </div>
+            </div>
+            <div id="setConnMsg" style="display:none;font-size:12px;padding:9px 12px;border-radius:8px;margin-bottom:10px;"></div>
+            <button class="btn btn-brand" id="setConnSave">Save</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">Alert threshold rules</div>
+            <div class="panel-sub" id="rulesSub"></div>
+          </div>
+          <div class="panel-body">
+            <table>
+              <thead><tr><th>Metric</th><th>Condition</th><th>Severity</th><th>Duration</th><th>Scope</th><th>Enabled</th><th></th></tr></thead>
+              <tbody id="rulesTableBody"></tbody>
+            </table>
+          </div>
+          <div class="panel-body pad" style="border-top:1px solid var(--border-soft);">
+            <div class="field-hint" style="margin-bottom:10px;">Add a rule (leave server blank to apply to every server)</div>
+            <div class="field-row">
+              <div class="field">
+                <label for="setRuleMetric">Metric</label>
+                <select id="setRuleMetric">
+                  <option value="cpu_usage">CPU usage</option>
+                  <option value="ram_usage">RAM usage</option>
+                  <option value="disk_usage">Disk usage</option>
+                  <option value="temperature">Temperature</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="setRuleOperator">Operator</label>
+                <select id="setRuleOperator">
+                  <option value=">">&gt;</option>
+                  <option value=">=">&ge;</option>
+                  <option value="<">&lt;</option>
+                  <option value="<=">&le;</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="setRuleThreshold">Threshold</label>
+                <input id="setRuleThreshold" type="number" placeholder="85">
+              </div>
+              <div class="field">
+                <label for="setRuleSeverity">Severity</label>
+                <select id="setRuleSeverity">
+                  <option value="info">Info</option>
+                  <option value="warning" selected>Warning</option>
+                  <option value="critical">Critical</option>
+                  <option value="emergency">Emergency</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="setRuleDuration">Duration (seconds, informational)</label>
+                <input id="setRuleDuration" type="number" placeholder="0">
+              </div>
+              <div class="field">
+                <label for="setRuleServer">Server (optional)</label>
+                <select id="setRuleServer"><option value="">All servers</option></select>
+              </div>
+            </div>
+            <div id="setRuleMsg" style="display:none;font-size:12px;padding:9px 12px;border-radius:8px;margin-bottom:10px;"></div>
+            <button class="btn btn-brand" id="setRuleAdd">Add rule</button>
+          </div>
+        </div>
       </section>
       <section class="view" id="view-__home">
         <div class="panel"><div class="placeholder">
@@ -1047,6 +1129,125 @@ function renderAgents(){
     </tr>`).join('') || `<tr><td colspan="7"><div class="empty">No agents registered yet.</div></td></tr>`;
 }
 
+/* ---- Services & Docker (real container data) ---- */
+let containers = [];
+let containerFilter = 'all';
+function humanMs(bytes){ return humanBytes(bytes); }
+async function loadContainers(){
+  try{
+    containers = await apiFetch('/api/monitoring/containers');
+  }catch(err){
+    document.getElementById('containersTableBody').innerHTML = `<tr><td colspan="7"><div class="empty">Couldn't load containers: ${err.message}</div></td></tr>`;
+    return;
+  }
+  renderContainerFilters();
+  renderContainersTable();
+}
+function renderContainerFilters(){
+  const states = ['all', ...new Set(containers.map(c=>c.state))];
+  document.getElementById('containerFilters').innerHTML = states.map(s=>
+    `<span class="chip ${containerFilter===s?'active':''}" data-f="${s}">${s==='all'?'All':s.charAt(0).toUpperCase()+s.slice(1)}</span>`
+  ).join('');
+  document.querySelectorAll('#containerFilters .chip').forEach(c=>c.onclick=()=>{ containerFilter=c.dataset.f; renderContainerFilters(); renderContainersTable(); });
+}
+function renderContainersTable(){
+  const list = containers.filter(c=> containerFilter==='all' || c.state===containerFilter);
+  document.getElementById('containersSub').textContent = `${containers.length} containers across ${new Set(containers.map(c=>c.server_name)).size} server(s)`;
+  const stateBadge = (state) => state==='running' ? badge('healthy') : state==='restarting' ? `<span class="badge warn"><span class="dot" style="background:var(--warn)"></span>Restarting</span>` : badge('offline');
+  document.getElementById('containersTableBody').innerHTML = list.map(c=>`
+    <tr>
+      <td><div class="cell-name">${c.name}</div><div class="cell-sub">${(c.container_id||'').slice(0,12)}</div></td>
+      <td class="mono">${c.server_name}</td>
+      <td class="cell-sub" style="font-family:var(--mono);font-size:11px;">${c.image||'—'}</td>
+      <td>${stateBadge(c.state)}<div class="cell-sub" style="margin-top:3px;">${c.status||''}</div></td>
+      <td class="mono">${c.cpu_percent!=null? c.cpu_percent+'%' : '—'}</td>
+      <td class="mono">${c.mem_used_bytes!=null? humanBytes(c.mem_used_bytes) + (c.mem_limit_bytes?' / '+humanBytes(c.mem_limit_bytes):'') : '—'}</td>
+      <td class="mono">${c.restart_count ?? '—'}</td>
+    </tr>`).join('') || `<tr><td colspan="7"><div class="empty">No containers reported yet — the agent needs Docker socket access (see docker-compose.yml) and at least one poll cycle.</div></td></tr>`;
+}
+
+/* ---- Settings: connection + alert rules ---- */
+function renderSettingsConnection(){
+  document.getElementById('setApiBase').value = API_BASE;
+  document.getElementById('setAdminKey').value = localStorage.getItem('tarmoc_admin_key') || '';
+}
+document.getElementById('setConnSave').onclick = ()=>{
+  const base = document.getElementById('setApiBase').value.trim();
+  const key = document.getElementById('setAdminKey').value.trim();
+  const msg = document.getElementById('setConnMsg');
+  if (key) localStorage.setItem('tarmoc_admin_key', key);
+  if (base && base !== API_BASE){
+    localStorage.setItem('tarmoc_api_base', base);
+    msg.textContent = 'Saved — reloading to apply the new API URL…';
+    msg.style.cssText = 'display:block;background:var(--ok-bg);color:var(--ok);font-size:12px;padding:9px 12px;border-radius:8px;margin-bottom:10px;';
+    setTimeout(()=>location.reload(), 700);
+    return;
+  }
+  msg.textContent = 'Admin key saved on this device.';
+  msg.style.cssText = 'display:block;background:var(--ok-bg);color:var(--ok);font-size:12px;padding:9px 12px;border-radius:8px;margin-bottom:10px;';
+  setTimeout(()=>{ msg.style.display='none'; }, 2500);
+};
+
+let alertRules = [];
+async function loadRules(){
+  try{
+    alertRules = await apiFetch('/api/monitoring/alerts/rules');
+  }catch(err){
+    document.getElementById('rulesTableBody').innerHTML = `<tr><td colspan="7"><div class="empty">Couldn't load rules: ${err.message}</div></td></tr>`;
+    return;
+  }
+  document.getElementById('rulesSub').textContent = `${alertRules.length} rules`;
+  const opLabel = {'>':'&gt;','>=':'&ge;','<':'&lt;','<=':'&le;'};
+  document.getElementById('rulesTableBody').innerHTML = alertRules.map(r=>`
+    <tr>
+      <td class="cell-name">${METRIC_LABEL[r.metric]||r.metric}</td>
+      <td class="mono">${opLabel[r.operator]||r.operator} ${r.threshold}${METRIC_UNIT[r.metric]||''}</td>
+      <td><span class="badge" style="background:${SEV[r.severity].bg};color:${SEV[r.severity].c}"><span class="dot" style="background:${SEV[r.severity].c}"></span>${SEV[r.severity].label}</span></td>
+      <td class="mono">${r.duration_seconds}s</td>
+      <td class="cell-sub">${r.server_id ? (servers.find(s=>s.uuid===r.server_id)?.name || 'one server') : 'All servers'}</td>
+      <td><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" ${r.enabled?'checked':''} onchange="toggleRule('${r.id}', this.checked)"> ${r.enabled?'Yes':'No'}</label></td>
+      <td></td>
+    </tr>`).join('') || `<tr><td colspan="7"><div class="empty">No rules yet.</div></td></tr>`;
+
+  const serverSelect = document.getElementById('setRuleServer');
+  serverSelect.innerHTML = '<option value="">All servers</option>' + servers.map(s=>`<option value="${s.uuid}">${s.name}</option>`).join('');
+}
+async function toggleRule(id, enabled){
+  const key = localStorage.getItem('tarmoc_admin_key');
+  if (!key){ alert('Set an admin key first (in Settings above).'); loadRules(); return; }
+  try{
+    await apiFetch(`/api/monitoring/alerts/rules/${id}`, { method:'PUT', headers:{'X-Admin-Key':key}, body: JSON.stringify({ enabled }) });
+    await loadRules();
+  }catch(err){ alert('Failed: ' + err.message); loadRules(); }
+}
+document.getElementById('setRuleAdd').onclick = async ()=>{
+  const key = localStorage.getItem('tarmoc_admin_key');
+  const msg = document.getElementById('setRuleMsg');
+  const threshold = document.getElementById('setRuleThreshold').value.trim();
+  if (!key || !threshold){
+    msg.textContent = !key ? 'Set an admin key above first.' : 'Threshold is required.';
+    msg.style.cssText = 'display:block;background:var(--crit-bg);color:var(--crit);font-size:12px;padding:9px 12px;border-radius:8px;margin-bottom:10px;';
+    return;
+  }
+  const payload = {
+    metric: document.getElementById('setRuleMetric').value,
+    operator: document.getElementById('setRuleOperator').value,
+    threshold: Number(threshold),
+    severity: document.getElementById('setRuleSeverity').value,
+    duration_seconds: Number(document.getElementById('setRuleDuration').value || 0),
+    server_id: document.getElementById('setRuleServer').value || null,
+  };
+  try{
+    await apiFetch('/api/monitoring/alerts/rules', { method:'POST', headers:{'X-Admin-Key':key}, body: JSON.stringify(payload) });
+    document.getElementById('setRuleThreshold').value = '';
+    msg.style.display = 'none';
+    await loadRules();
+  }catch(err){
+    msg.textContent = err.status===401 ? 'Admin key rejected.' : `Failed: ${err.message}`;
+    msg.style.cssText = 'display:block;background:var(--crit-bg);color:var(--crit);font-size:12px;padding:9px 12px;border-radius:8px;margin-bottom:10px;';
+  }
+};
+
 /* ---- Server detail ---- */
 let currentChart = null;
 let currentServer = null;
@@ -1178,6 +1379,8 @@ function switchView(key){
   document.getElementById('viewTitle').textContent = TITLES[key]||key;
   document.getElementById('sidebar').classList.remove('open');
   window.scrollTo({top:0});
+  if (key==='docker') loadContainers();
+  if (key==='settings') { renderSettingsConnection(); loadRules(); }
 }
 document.querySelectorAll('.nav-item').forEach(n=>{
   n.addEventListener('click', ()=> switchView(n.dataset.view));

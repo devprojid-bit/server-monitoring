@@ -78,6 +78,28 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- One row per container, kept current (upserted) rather than a time series — a
+-- container's identity is its (server_id, container_id) pair. MD-02 section 14.
+CREATE TABLE IF NOT EXISTS containers (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  server_id         UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  container_id      TEXT NOT NULL,   -- Docker's own container ID
+  name              TEXT NOT NULL,
+  image             TEXT,
+  state             TEXT,            -- running | exited | restarting | paused | ...
+  status            TEXT,            -- Docker's human-readable status string
+  cpu_percent       NUMERIC,         -- NOT capped at 100 — a container can use multiple cores
+  mem_used_bytes    BIGINT,
+  mem_limit_bytes   BIGINT,
+  net_rx_bytes      BIGINT,
+  net_tx_bytes      BIGINT,
+  restart_count     INT,
+  started_at        TIMESTAMPTZ,
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (server_id, container_id)
+);
+CREATE INDEX IF NOT EXISTS idx_containers_server ON containers (server_id);
+
 -- Default threshold rules (MD-02 section 7 / 8 / 26) — apply to all servers (server_id = NULL)
 INSERT INTO alert_rules (metric, operator, threshold, severity, duration_seconds)
 SELECT * FROM (VALUES

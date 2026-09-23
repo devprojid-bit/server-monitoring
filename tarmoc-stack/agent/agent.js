@@ -15,6 +15,7 @@
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const { execSync } = require('child_process');
 
 const CONFIG = {
@@ -30,7 +31,9 @@ const CONFIG = {
   heartbeatEvery: parseInt(process.env.HEARTBEAT_EVERY_N_TICKS || '4', 10),
   stateFile: process.env.AGENT_STATE_FILE || path.join(__dirname, '.tarmoc-agent-state.json'),
   presetToken: process.env.AGENT_TOKEN || null,
-  agentVersion: '1.0.0',
+  dockerSocket: process.env.DOCKER_SOCKET || '/var/run/docker.sock',
+  dockerEnabled: process.env.DOCKER_MONITORING !== 'false',
+  agentVersion: '1.1.0',
 };
 
 function firstNonInternalIp() {
@@ -176,6 +179,118 @@ function loadAvg() {
 
 function round2(n) { return Math.round(n * 100) / 100; }
 
+// ---------- Docker container monitoring (MD-02 section 14) ----------
+// Talks to the Docker Engine API directly over its unix socket — no docker CLI and
+// no npm dependency needed. Requires /var/run/docker.sock to be bind-mounted
+// read-only into this container (see docker-compose.yml).
+
+let dockerAvailable = null; // null = not checked yet, else true/false
+let dockerWarnedOnce = false;
+
+function dockerRequest(reqPath, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ socketPath: CONFIG.dockerSocket, path: reqPath, method: 'GET', timeout: timeoutMs }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return reject(new Error(`Docker API ${reqPath} → ${res.statusCode}: ${body.slice(0, 200)}`));
+        }
+        try { resolve(body ? JSON.parse(body) : null); } catch (e) { reject(e); }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error(`Docker API ${reqPath} timed out`)));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function checkDockerAvailable() {
+  if (!CONFIG.dockerEnabled) { dockerAvailable = false; return false; }
+  if (!fs.existsSync(CONFIG.dockerSocket)) { dockerAvailable = false; return false; }
+  try {
+    await dockerRequest('/version', 2000);
+    dockerAvailable = true;
+    log(`Docker socket detected at ${CONFIG.dockerSocket} — container monitoring enabled.`);
+  } catch (e) {
+    dockerAvailable = false;
+    log(`Docker socket present but not reachable (${e.message}) — container monitoring disabled.`);
+  }
+  return dockerAvailable;
+}
+
+// Same formula `docker stats` itself uses: usage delta as a fraction of the host's
+// total CPU-time delta, scaled by core count. This is intentionally NOT capped at
+// 100 — a container using two full cores on a multi-core host legitimately reads ~200%.
+function containerCpuPercent(stats) {
+  try {
+    const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
+    const sysDelta = stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
+    const cores = stats.cpu_stats.online_cpus || (stats.cpu_stats.cpu_usage.percpu_usage || []).length || os.cpus().length || 1;
+    if (sysDelta <= 0 || cpuDelta < 0) return 0;
+    const pct = (cpuDelta / sysDelta) * cores * 100;
+    // Sanity ceiling only — guards against a parsing/API oddity producing a wild
+    // number, not a "max 100%" assumption (multi-core containers can exceed 100%).
+    return Math.max(0, Math.min(cores * 100, round2(pct)));
+  } catch (e) { return null; }
+}
+function containerMemUsed(stats) {
+  try {
+    // Docker CLI subtracts page cache from the raw usage figure so "used" reflects
+    // what the container is actually holding, not reclaimable filesystem cache.
+    const cache = (stats.memory_stats.stats && (stats.memory_stats.stats.cache ?? stats.memory_stats.stats.inactive_file)) || 0;
+    return Math.max(0, (stats.memory_stats.usage || 0) - cache);
+  } catch (e) { return null; }
+}
+function containerNetBytes(stats) {
+  try {
+    const nets = stats.networks || {};
+    let rx = 0, tx = 0;
+    Object.values(nets).forEach((n) => { rx += n.rx_bytes || 0; tx += n.tx_bytes || 0; });
+    return { rx, tx };
+  } catch (e) { return { rx: null, tx: null }; }
+}
+
+async function getContainers() {
+  if (dockerAvailable === null) await checkDockerAvailable();
+  if (!dockerAvailable) return [];
+
+  let list;
+  try {
+    list = await dockerRequest('/containers/json?all=true');
+  } catch (e) {
+    if (!dockerWarnedOnce) { log('WARNING: failed to list containers:', e.message); dockerWarnedOnce = true; }
+    return [];
+  }
+
+  const results = await Promise.all(list.map(async (c) => {
+    const name = (c.Names && c.Names[0] || c.Id).replace(/^\//, '');
+    const base = { id: c.Id, name, image: c.Image, state: c.State, status: c.Status, restart_count: null, started_at: null, cpu_percent: null, mem_used_bytes: null, mem_limit_bytes: null, net_rx_bytes: null, net_tx_bytes: null };
+    if (c.State !== 'running') return base; // stats/inspect are only meaningful for running containers
+
+    try {
+      const [stats, inspect] = await Promise.all([
+        dockerRequest(`/containers/${c.Id}/stats?stream=false`),
+        dockerRequest(`/containers/${c.Id}/json`),
+      ]);
+      const net = containerNetBytes(stats);
+      return {
+        ...base,
+        cpu_percent: containerCpuPercent(stats),
+        mem_used_bytes: containerMemUsed(stats),
+        mem_limit_bytes: stats.memory_stats?.limit ?? null,
+        net_rx_bytes: net.rx, net_tx_bytes: net.tx,
+        restart_count: inspect.RestartCount ?? null,
+        started_at: inspect.State?.StartedAt || null,
+      };
+    } catch (e) {
+      return base; // one container's stats failing shouldn't drop it from the list entirely
+    }
+  }));
+
+  return results;
+}
+
 // ---------- state (cached token) ----------
 
 function loadState() {
@@ -274,9 +389,22 @@ async function sendMetrics(token, prevCpu) {
   return currCpu;
 }
 
+async function sendContainers(token) {
+  const containers = await getContainers();
+  if (!dockerAvailable) return; // nothing to report, and we already logged why once
+  await apiFetch('/api/agent/containers', {
+    method: 'POST',
+    headers: { 'X-Agent-Token': token },
+    body: { containers },
+  });
+  const running = containers.filter((c) => c.state === 'running').length;
+  log(`containers: ${running}/${containers.length} running`);
+}
+
 async function main() {
   log(`TARMOC agent starting — API=${CONFIG.apiUrl} server=${CONFIG.serverName} interval=${CONFIG.intervalSeconds}s`);
   const token = await ensureToken();
+  await checkDockerAvailable();
 
   let prevCpu = cpuSnapshot();
   // First real sample needs a baseline; wait one short beat before the first real reading.
@@ -287,6 +415,7 @@ async function main() {
     try {
       if (tick % CONFIG.heartbeatEvery === 1) await sendHeartbeat(token);
       prevCpu = await sendMetrics(token, prevCpu);
+      if (dockerAvailable) await sendContainers(token);
     } catch (err) {
       log('ERROR:', err.message);
     }
