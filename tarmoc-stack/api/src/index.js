@@ -3,12 +3,24 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+require('express-async-errors'); // makes async route handler errors reach the error middleware below instead of crashing the process
 
 const db = require('./db');
 const serversRoute = require('./routes/servers').router;
 const agentRoute = require('./routes/agent');
 const alertsRoute = require('./routes/alerts');
 const containersRoute = require('./routes/containers');
+
+// Last-resort safety net: one bad request should never take down the whole API.
+// Without this, an unhandled rejection anywhere crashes the entire Node process
+// (this is exactly what happened when the "containers" table didn't exist yet —
+// every request to that route killed the API until Docker restarted it).
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled rejection (API stayed up):', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception (API stayed up):', err);
+});
 
 const app = express();
 app.use(helmet());
