@@ -130,7 +130,13 @@ let lastNetSample = null; // { bytes: {rx, tx}, at: ms }
 // many containers, summing these alongside the real NIC double- and triple-counts
 // internal traffic and massively inflates the reported Mbps. Only physical/real
 // NICs (eth0, ens*, enp*, wlan0, bond0, etc.) should count toward the total.
-const VIRTUAL_IFACE_PATTERN = /^(lo|docker\d*|veth|br-|virbr|tun|tap|cni|flannel|cali|vxlan|wg|zt|ifb)/;
+// Interfaces that are unambiguously Docker's own internal plumbing — never a real
+// WAN path. Deliberately NOT excluding tap/tun/wg here: on some hosts (this one
+// included) the real internet connection is itself a tap/tun/VPN-style interface,
+// so blanket-excluding those categories silently zeroed out all real traffic.
+// docker0 and veth* are always Docker; "br-XXXXXXXXXXXX" (12 hex chars) is
+// Docker's own naming for user-defined bridge networks specifically.
+const VIRTUAL_IFACE_PATTERN = /^(lo|docker\d*|veth[0-9a-f]|br-[0-9a-f]{12}$|virbr|cni|flannel|cali|vxlan|ifb)/;
 
 function networkRateMbps() {
   if (process.platform !== 'linux') return { rxMbps: null, txMbps: null };
